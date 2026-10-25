@@ -46,8 +46,7 @@ dotnet run --project src/ServerSample.Client -- --bots 200
 Client tương tác: gõ chữ để chat, `/echo <text>` để echo, `/quit` để thoát.
 `--silent` kết nối nhưng không gửi Ping, server sẽ ngắt sau ~15 giây.
 
-Cấu hình nằm trong `src/ServerSample.Server/appsettings.json`, có thể ghi đè bằng biến môi trường, ví dụ `Server__Port=9000`.
-
+Cấu hình server (cổng, heartbeat...) nằm trong `src/ServerSample.Server/ServerOptions.cs`, cấu hình log nằm trong `Program.cs`. Đổi xong phải build lại.
 ## Giao thức
 
 ```

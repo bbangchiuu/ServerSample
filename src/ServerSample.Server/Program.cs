@@ -1,28 +1,36 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
+using Serilog.Events;
 using ServerSample.Server;
 using ServerSample.Server.Networking;
 
-// Generic Host = "bộ khung" chuẩn của .NET: cấu hình (appsettings.json + biến môi trường),
-// Dependency Injection, logging, và xử lý tắt server êm (Ctrl+C / SIGTERM của Docker).
-HostApplicationBuilder builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
-{
-    Args = args,
-    // Đọc appsettings.json cạnh file .dll, bất kể chạy lệnh từ thư mục nào.
-    ContentRootPath = AppContext.BaseDirectory,
-});
+// Generic Host = "bộ khung" chuẩn của .NET: Dependency Injection, logging,
+// và xử lý tắt server êm (Ctrl+C / SIGTERM của Docker).
+HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
 
-builder.Services.AddSerilog(logger => logger.ReadFrom.Configuration(builder.Configuration));
+// Log ghi ra 2 nơi: console và file.
+builder.Services.AddSerilog(logger => logger
+    // Chỉ ghi từ mức Information trở lên (bỏ Debug/Verbose).
+    .MinimumLevel.Information()
+    // Log nội bộ của .NET (namespace Microsoft.*) chỉ ghi khi có cảnh báo/lỗi, cho console đỡ rối.
+    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+    .WriteTo.Console(
+        outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
+    .WriteTo.File(
+        // Luôn nằm trong <thư mục .dll>/logs, bất kể chạy lệnh từ thư mục nào.
+        path: Path.Combine(AppContext.BaseDirectory, "logs", "server-.log"),
+        rollingInterval: RollingInterval.Day,  // mỗi ngày một file: server-20261025.log
+        retainedFileCountLimit: 14,            // giữ 14 file gần nhất, tự xóa file cũ hơn
+        fileSizeLimitBytes: 100 * 1024 * 1024, // tối đa 100MB mỗi file...
+        rollOnFileSizeLimit: true,             // ...đầy thì tách sang file mới thay vì ngừng ghi
+        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}"));
 
+// Cấu hình server: giá trị nằm trong ServerOptions.cs.
 builder.Services
     .AddOptions<ServerOptions>()
-    .Bind(
-        builder.Configuration.GetRequiredSection(ServerOptions.SectionName), // thiếu section "Server" → lỗi
-        binder => binder.ErrorOnUnknownConfiguration = true)                 // key gõ sai (vd "Prot") → lỗi
     .ValidateDataAnnotations()
-    .ValidateOnStart(); // cấu hình sai thì báo lỗi ngay khi khởi động, không phải lúc đang chạy
+    .ValidateOnStart(); // giá trị vi phạm [Range] thì báo lỗi ngay khi khởi động
 
 // Singleton: cả server dùng chung một instance.
 builder.Services.AddSingleton<SessionManager>();
