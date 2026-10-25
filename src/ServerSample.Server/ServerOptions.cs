@@ -3,13 +3,11 @@ using System.ComponentModel.DataAnnotations;
 namespace ServerSample.Server;
 
 /// <summary>
-/// Cấu hình server, đọc từ section "Server" trong appsettings.json (Options pattern).
-/// Có thể ghi đè bằng biến môi trường, ví dụ: Server__Port=9000
+/// Cấu hình server. Giá trị được đặt trực tiếp ở đây; muốn đổi thì sửa file này rồi build lại.
+/// Các [Range] được kiểm tra lúc khởi động (ValidateOnStart trong Program.cs).
 /// </summary>
 public sealed class ServerOptions
 {
-    public const string SectionName = "Server";
-
     [Range(1, 65535)]
     public int Port { get; set; } = 7777;
 
