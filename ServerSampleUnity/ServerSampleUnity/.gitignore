@@ -1,0 +1,68 @@
+# .gitignore cho project Unity (dựa trên mẫu Unity.gitignore của GitHub).
+# Các thư mục dưới đây do Unity tự sinh ra, mở project là Unity tạo lại: không commit.
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# File .meta trong Assets PHẢI được commit (chứa GUID để scene/prefab tham chiếu tới asset)
+!/[Aa]ssets/**/*.meta
+
+# .gitignore ở gốc repo (mẫu Visual Studio) bỏ qua mọi thư mục "Packages" vì tưởng là thư mục NuGet.
+# Với Unity, Packages/manifest.json (danh sách package của project) là BẮT BUỘC: lấy lại.
+!/[Pp]ackages/*
+!/[Pp]roject[Ss]ettings/[Pp]ackages/*
+
+# Plugin Rider tự sinh
+/[Aa]ssets/Plugins/Editor/JetBrains*
+
+# Cache của Visual Studio / Gradle
+.vs/
+.gradle/
+
+# File project/solution do Unity tự sinh cho IDE
+ExportedObj/
+.consulo/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Meta của các file debug ở trên
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# Báo cáo crash
+sysinfo.txt
+
+# File build
+*.apk
+*.aab
+*.unitypackage
+*.app
+
+# Crashlytics
+crashlytics-build.properties
+
+# Addressables đã đóng gói
+/[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.bin*
+
+# Asset Android tạm thời
+/[Aa]ssets/[Ss]treamingAssets/aa.meta
+/[Aa]ssets/[Ss]treamingAssets/aa/*

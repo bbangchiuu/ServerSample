@@ -24,7 +24,7 @@ public sealed class GameClient : IAsyncDisposable
     private volatile bool _connected;
 
     /// <summary>Lưu ý: được gọi trên thread của vòng nhận, không phải main thread (trong Unity phải chuyển về main thread).</summary>
-    public event Action<Packet>? PacketReceived;
+    public event Action<CPacket>? PacketReceived;
 
     public event Action<string>? Disconnected;
 
@@ -41,7 +41,7 @@ public sealed class GameClient : IAsyncDisposable
             _pingTask = PingLoopAsync(_cts.Token);
     }
 
-    public async Task SendAsync(Packet packet, CancellationToken ct = default)
+    public async Task SendAsync(CPacket packet, CancellationToken ct = default)
     {
         if (_stream is null)
             throw new InvalidOperationException("Not connected.");
@@ -64,7 +64,7 @@ public sealed class GameClient : IAsyncDisposable
         {
             while (true)
             {
-                Packet? packet = await PacketSerializer.ReadAsync(_stream!, MaxPayloadSize, ct);
+                CPacket? packet = await PacketSerializer.ReadAsync(_stream!, MaxPayloadSize, ct);
                 if (packet is null)
                 {
                     reason = "server closed the connection";
@@ -95,7 +95,7 @@ public sealed class GameClient : IAsyncDisposable
         try
         {
             while (_connected && await timer.WaitForNextTickAsync(ct))
-                await SendAsync(Packet.Empty(MessageType.Ping), ct);
+                await SendAsync(CPacket.Empty(MessageType.Ping), ct);
         }
         catch (OperationCanceledException)
         {

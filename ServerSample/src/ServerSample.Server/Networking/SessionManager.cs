@@ -24,7 +24,7 @@ public sealed class SessionManager
 
     public void Remove(ClientSession session) => _sessions.TryRemove(session.Id, out _);
 
-    public void Broadcast(Packet packet)
+    public void Broadcast(CPacket packet)
     {
         foreach (ClientSession session in _sessions.Values)
             session.Send(packet);

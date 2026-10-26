@@ -64,9 +64,9 @@ static async Task RunInteractiveAsync(string host, int port, bool sendHeartbeat,
         if (line is null || line == "/quit" || !client.IsConnected)
             break;
 
-        Packet packet = line.StartsWith("/echo ", StringComparison.Ordinal)
-            ? Packet.FromText(MessageType.Echo, line["/echo ".Length..])
-            : Packet.FromText(MessageType.Chat, line);
+        CPacket packet = line.StartsWith("/echo ", StringComparison.Ordinal)
+            ? CPacket.FromText(MessageType.Echo, line["/echo ".Length..])
+            : CPacket.FromText(MessageType.Chat, line);
         await client.SendAsync(packet, ct);
     }
 }
@@ -104,7 +104,7 @@ static class BotRunner
 
                 while (!ct.IsCancellationRequested && client.IsConnected)
                 {
-                    await client.SendAsync(Packet.FromText(MessageType.Echo, Stopwatch.GetTimestamp().ToString()), ct);
+                    await client.SendAsync(CPacket.FromText(MessageType.Echo, Stopwatch.GetTimestamp().ToString()), ct);
                     await Task.Delay(1000 + Random.Shared.Next(-200, 200), ct);
                 }
             }

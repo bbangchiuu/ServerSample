@@ -23,7 +23,7 @@ public sealed class ClientSession
     private readonly NetworkStream _stream;
     private readonly ServerOptions _options;
     private readonly ILogger _logger;
-    private readonly Channel<Packet> _sendQueue;
+    private readonly Channel<CPacket> _sendQueue;
     private readonly CancellationTokenSource _cts = new();
     private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -39,7 +39,7 @@ public sealed class ClientSession
         _logger = logger;
         RemoteEndPoint = client.Client.RemoteEndPoint;
 
-        _sendQueue = Channel.CreateBounded<Packet>(new BoundedChannelOptions(options.SendQueueCapacity)
+        _sendQueue = Channel.CreateBounded<CPacket>(new BoundedChannelOptions(options.SendQueueCapacity)
         {
             SingleReader = true,                 // chỉ SendLoop đọc
             SingleWriter = false,                // nhiều nơi có thể gọi Send()
@@ -79,7 +79,7 @@ public sealed class ClientSession
     /// <summary>
     /// Đưa gói vào hàng đợi gửi. Không chờ, an toàn khi gọi từ nhiều thread.
     /// </summary>
-    public void Send(Packet packet)
+    public void Send(CPacket packet)
     {
         if (_sendQueue.Writer.TryWrite(packet))
             return;
@@ -117,7 +117,7 @@ public sealed class ClientSession
         {
             while (!IsClosed)
             {
-                Packet? packet = await PacketSerializer.ReadAsync(_stream, _options.MaxPayloadSize, ct);
+                CPacket? packet = await PacketSerializer.ReadAsync(_stream, _options.MaxPayloadSize, ct);
                 if (packet is null)
                 {
                     Close("client disconnected");
@@ -153,7 +153,7 @@ public sealed class ClientSession
         try
         {
             // ReadAllAsync kết thúc khi hàng đợi đã Complete (do Close) VÀ đã gửi hết gói còn lại.
-            await foreach (Packet packet in _sendQueue.Reader.ReadAllAsync(ct))
+            await foreach (CPacket packet in _sendQueue.Reader.ReadAllAsync(ct))
                 await PacketSerializer.WriteAsync(_stream, packet, ct);
         }
         catch (OperationCanceledException)

@@ -10,10 +10,10 @@ public class PacketSerializerTests
     public async Task Roundtrip_TextPacket()
     {
         var stream = new MemoryStream();
-        await PacketSerializer.WriteAsync(stream, Packet.FromText(MessageType.Chat, "xin chào"));
+        await PacketSerializer.WriteAsync(stream, CPacket.FromText(MessageType.Chat, "xin chào"));
         stream.Position = 0;
 
-        Packet? result = await PacketSerializer.ReadAsync(stream, MaxPayload);
+        CPacket? result = await PacketSerializer.ReadAsync(stream, MaxPayload);
 
         Assert.NotNull(result);
         Assert.Equal(MessageType.Chat, result.Value.Type);
@@ -24,12 +24,12 @@ public class PacketSerializerTests
     public async Task Roundtrip_EmptyPayload()
     {
         var stream = new MemoryStream();
-        await PacketSerializer.WriteAsync(stream, Packet.Empty(MessageType.Ping));
+        await PacketSerializer.WriteAsync(stream, CPacket.Empty(MessageType.Ping));
 
         Assert.Equal(PacketSerializer.HeaderSize, stream.Length);
 
         stream.Position = 0;
-        Packet? result = await PacketSerializer.ReadAsync(stream, MaxPayload);
+        CPacket? result = await PacketSerializer.ReadAsync(stream, MaxPayload);
 
         Assert.Equal(MessageType.Ping, result!.Value.Type);
         Assert.Empty(result.Value.Payload);
@@ -41,12 +41,12 @@ public class PacketSerializerTests
         // TCP có thể gửi nhiều gói dính liền trong một lần Read.
         var stream = new MemoryStream();
         for (int i = 0; i < 3; i++)
-            await PacketSerializer.WriteAsync(stream, Packet.FromText(MessageType.Echo, $"msg {i}"));
+            await PacketSerializer.WriteAsync(stream, CPacket.FromText(MessageType.Echo, $"msg {i}"));
         stream.Position = 0;
 
         for (int i = 0; i < 3; i++)
         {
-            Packet? result = await PacketSerializer.ReadAsync(stream, MaxPayload);
+            CPacket? result = await PacketSerializer.ReadAsync(stream, MaxPayload);
             Assert.Equal($"msg {i}", result!.Value.PayloadAsText);
         }
 
@@ -58,10 +58,10 @@ public class PacketSerializerTests
     {
         // ...hoặc chia một gói ra làm nhiều lần Read.
         var source = new MemoryStream();
-        await PacketSerializer.WriteAsync(source, Packet.FromText(MessageType.Chat, "fragmented packet"));
+        await PacketSerializer.WriteAsync(source, CPacket.FromText(MessageType.Chat, "fragmented packet"));
         var stream = new OneByteAtATimeStream(source.ToArray());
 
-        Packet? result = await PacketSerializer.ReadAsync(stream, MaxPayload);
+        CPacket? result = await PacketSerializer.ReadAsync(stream, MaxPayload);
 
         Assert.Equal("fragmented packet", result!.Value.PayloadAsText);
     }
@@ -84,7 +84,7 @@ public class PacketSerializerTests
     public async Task Throws_WhenStreamEndsInsidePayload()
     {
         var source = new MemoryStream();
-        await PacketSerializer.WriteAsync(source, Packet.FromText(MessageType.Chat, "hello"));
+        await PacketSerializer.WriteAsync(source, CPacket.FromText(MessageType.Chat, "hello"));
         var stream = new MemoryStream(source.ToArray()[..^2]);
 
         await Assert.ThrowsAsync<EndOfStreamException>(() => PacketSerializer.ReadAsync(stream, MaxPayload).AsTask());

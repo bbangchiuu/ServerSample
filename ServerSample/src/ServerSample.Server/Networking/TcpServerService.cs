@@ -65,7 +65,7 @@ public sealed class TcpServerService(
         sessions.Add(session);
         logger.LogInformation("Session {SessionId} connected from {RemoteEndPoint} (online: {Online})", session.Id, session.RemoteEndPoint, sessions.Count);
 
-        session.Send(Packet.FromText(MessageType.Notice, $"Welcome! You are #{session.Id}. Online: {sessions.Count}"));
+        session.Send(CPacket.FromText(MessageType.Notice, $"Welcome! You are #{session.Id}. Online: {sessions.Count}"));
 
         // Không await: accept loop phải quay lại nhận client tiếp theo ngay.
         // RunSessionAsync tự bắt mọi exception nên không có exception nào bị "nuốt mất".
@@ -97,7 +97,7 @@ public sealed class TcpServerService(
         logger.LogInformation("Closing {Count} sessions...", all.Count);
         foreach (ClientSession session in all)
         {
-            session.Send(Packet.FromText(MessageType.Notice, "Server is shutting down."));
+            session.Send(CPacket.FromText(MessageType.Notice, "Server is shutting down."));
             session.Close("server shutting down");
         }
 

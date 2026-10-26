@@ -15,7 +15,7 @@ public static class PacketSerializer
 {
     public const int HeaderSize = 5;
 
-    public static async ValueTask WriteAsync(Stream stream, Packet packet, CancellationToken ct = default)
+    public static async ValueTask WriteAsync(Stream stream, CPacket packet, CancellationToken ct = default)
     {
         int frameSize = HeaderSize + packet.Payload.Length;
 
@@ -41,7 +41,7 @@ public static class PacketSerializer
     /// </summary>
     /// <exception cref="InvalidDataException">Header không hợp lệ (gói quá lớn / độ dài âm).</exception>
     /// <exception cref="EndOfStreamException">Kết nối bị đóng giữa chừng một gói.</exception>
-    public static async ValueTask<Packet?> ReadAsync(Stream stream, int maxPayloadSize, CancellationToken ct = default)
+    public static async ValueTask<CPacket?> ReadAsync(Stream stream, int maxPayloadSize, CancellationToken ct = default)
     {
         byte[] header = new byte[HeaderSize];
         int read = await stream.ReadAtLeastAsync(header, HeaderSize, throwOnEndOfStream: false, ct);
@@ -61,6 +61,6 @@ public static class PacketSerializer
         byte[] payload = payloadLength == 0 ? [] : new byte[payloadLength];
         await stream.ReadExactlyAsync(payload, ct);
 
-        return new Packet(type, payload);
+        return new CPacket(type, payload);
     }
 }

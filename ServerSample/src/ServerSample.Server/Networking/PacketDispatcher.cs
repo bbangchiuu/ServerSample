@@ -14,12 +14,12 @@ public sealed class PacketDispatcher(SessionManager sessions, IOptions<ServerOpt
 {
     private readonly ServerOptions _options = options.Value;
 
-    public ValueTask HandleAsync(ClientSession session, Packet packet)
+    public ValueTask HandleAsync(ClientSession session, CPacket packet)
     {
         switch (packet.Type)
         {
             case MessageType.Ping:
-                session.Send(Packet.Empty(MessageType.Pong));
+                session.Send(CPacket.Empty(MessageType.Pong));
                 break;
 
             case MessageType.Echo:
@@ -48,10 +48,10 @@ public sealed class PacketDispatcher(SessionManager sessions, IOptions<ServerOpt
 
         if (text.Length > _options.MaxChatLength)
         {
-            session.Send(Packet.FromText(MessageType.Notice, $"Message too long (max {_options.MaxChatLength} characters)."));
+            session.Send(CPacket.FromText(MessageType.Notice, $"Message too long (max {_options.MaxChatLength} characters)."));
             return;
         }
 
-        sessions.Broadcast(Packet.FromText(MessageType.ChatBroadcast, $"[#{session.Id}] {text}"));
+        sessions.Broadcast(CPacket.FromText(MessageType.ChatBroadcast, $"[#{session.Id}] {text}"));
     }
 }

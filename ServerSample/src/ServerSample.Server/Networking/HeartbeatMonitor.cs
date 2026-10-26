@@ -34,7 +34,7 @@ public sealed class HeartbeatMonitor(
                         continue;
 
                     logger.LogInformation("Session {SessionId} idle for {Idle:N1}s, disconnecting", session.Id, session.IdleTime.TotalSeconds);
-                    session.Send(Packet.FromText(MessageType.Notice, "Disconnected: heartbeat timeout."));
+                    session.Send(CPacket.FromText(MessageType.Notice, "Disconnected: heartbeat timeout."));
                     session.Close("heartbeat timeout");
                 }
             }
