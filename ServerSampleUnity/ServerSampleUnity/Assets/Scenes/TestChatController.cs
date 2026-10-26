@@ -11,7 +11,7 @@ public class TestChatController : MonoBehaviour
     {
         btn.onClick.AddListener(() =>
         {
-            SocketController.Instance.SendText(MessageType.Chat, inputField.text);
+            SocketController.Instance?.SendText(MessageType.Chat, inputField.text);
             inputField.text = string.Empty;
         });
     }

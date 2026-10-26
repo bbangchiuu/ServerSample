@@ -23,9 +23,10 @@ public class SocketController : MonoBehaviour
 
     private readonly List<string> _messages = new();
     private GameClient? _client;
-    private string _input = "";
 
-    public static SocketController Instance;
+    // Chỉ SocketController được gán (private set); null khi chưa có hoặc đã bị Destroy.
+    public static SocketController? Instance { get; private set; }
+
     private void Awake()
     {
         Instance = this;
@@ -39,9 +40,15 @@ public class SocketController : MonoBehaviour
         AddMessage($"Connecting to {host}:{port}...");
         try
         {
-            await _client.ConnectAsync(host, port, sendHeartbeat: true);
+            // destroyCancellationToken: Unity tự hủy token này khi GameObject bị Destroy (kể cả khi bấm Stop),
+            // nên đang kết nối dở mà thoát Play Mode thì việc kết nối dừng ngay.
+            await _client.ConnectAsync(host, port, sendHeartbeat: true, destroyCancellationToken);
             // Sau await trong Start(), Unity đưa code quay lại main thread, nên gọi AddMessage ở đây là an toàn.
             AddMessage("Connected.");
+        }
+        catch (OperationCanceledException)
+        {
+            // GameObject bị Destroy trong lúc đang kết nối: dừng theo yêu cầu, không phải lỗi.
         }
         catch (Exception ex)
         {
@@ -60,6 +67,10 @@ public class SocketController : MonoBehaviour
 
     private void OnDestroy()
     {
+        // Không để Instance trỏ tới object đã bị hủy.
+        if (Instance == this)
+            Instance = null;
+
         // Task nền KHÔNG tự dừng khi thoát Play Mode: nếu không đóng ở đây, socket vẫn mở,
         // Ping vẫn gửi, và lần Play sau sẽ có 2 kết nối.
         // Không await được trong OnDestroy, nhưng DisposeAsync đóng socket ngay ở phần đầu (trước await đầu tiên).
@@ -93,7 +104,11 @@ public class SocketController : MonoBehaviour
 
         try
         {
-            await _client.SendAsync(CPacket.FromText(type, text));
+            await _client.SendAsync(CPacket.FromText(type, text), destroyCancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // GameObject bị Destroy trong lúc đang chờ gửi: bỏ qua.
         }
         catch (Exception ex)
         {
