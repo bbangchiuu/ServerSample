@@ -1,6 +1,6 @@
 # ServerSampleApi
 
-HTTP API cho game, viết bằng ASP.NET Core Minimal API (.NET 9). **Giai đoạn 2** của lộ trình học backend.
+HTTP API cho game, viết bằng ASP.NET Core Minimal API (.NET 10). **Giai đoạn 2** của lộ trình học backend.
 Chạy độc lập với TCP server (`../ServerSample`, cổng 7777).
 
 ## Chức năng

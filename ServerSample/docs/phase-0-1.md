@@ -75,5 +75,5 @@ Ghi câu trả lời vào cuối file này. Đây là bài tập quan trọng nh
 
 ## Môi trường
 
-- Đang dùng .NET 9 SDK. Khi cài .NET 10 SDK (LTS), đổi `net9.0` thành `net10.0` trong `Directory.Build.props`.
+- Đang dùng .NET 10 (LTS, được hỗ trợ tới 11/2028). Phiên bản .NET khai báo trong `Directory.Build.props`.
 - Docker Desktop: cần từ giai đoạn 3 cho `docker-compose.yml` (Postgres + Redis).

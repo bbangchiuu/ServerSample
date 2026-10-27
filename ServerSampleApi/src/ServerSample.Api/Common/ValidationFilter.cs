@@ -6,7 +6,8 @@ namespace ServerSample.Api.Common;
 /// Endpoint filter: chạy TRƯỚC handler, kiểm tra các attribute [Required], [StringLength]...
 /// trên object request. Sai thì trả 400 kèm danh sách lỗi, handler không bao giờ được gọi.
 ///
-/// .NET 9 Minimal API chưa tự validate (MVC Controller thì có sẵn), nên tự viết filter này.
+/// Từ .NET 10, Minimal API đã có validation dựng sẵn (builder.Services.AddValidation()).
+/// Filter tự viết này được giữ lại để học cách endpoint filter hoạt động (xem bài tập 8 trong docs/phase-2.md).
 /// </summary>
 public sealed class ValidationFilter<T> : IEndpointFilter where T : class
 {

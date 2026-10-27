@@ -116,6 +116,8 @@ Khi chuyển sang database ở giai đoạn 3, `lock` trong RAM sẽ được th
 6. **Test "sang ngày mới":** cài package `Microsoft.Extensions.TimeProvider.Testing`, thay `TimeProvider` trong test
    bằng `FakeTimeProvider`, tua thời gian sang ngày hôm sau và kiểm tra nhận thưởng được lần nữa.
 7. **Unity:** gọi API đăng ký, đăng nhập, xem profile từ Unity bằng `UnityWebRequest` (bước tiếp theo của giai đoạn 2).
+8. **Validation dựng sẵn của .NET 10:** thay `ValidationFilter` tự viết bằng `builder.Services.AddValidation()`,
+   bỏ các `.WithValidation<T>()`, chạy lại test. So sánh: cách nào ít code hơn, cách nào dễ tuỳ biến hơn?
 
 ## Tự kiểm tra
 - Vì sao "nhận thưởng" dùng POST mà không dùng GET?
