@@ -1,0 +1,77 @@
+# Thử API ngay trong Visual Studio (2022 bản 17.12 trở lên) hoặc Rider:
+# chạy ServerSample.Api trước, rồi bấm "Send request" phía trên từng request.
+# Các request được ngăn cách bằng dòng ###
+
+@baseUrl = http://localhost:5080
+
+### 1. Đăng ký tài khoản → 201 Created
+# @name register
+POST {{baseUrl}}/api/accounts/register
+Content-Type: application/json
+
+{
+  "username": "bang",
+  "password": "secret123"
+}
+
+### Lấy playerId từ kết quả đăng ký ở trên (chạy request 1 trước)
+@playerId = {{register.response.body.$.playerId}}
+
+### 2. Đăng ký trùng tên (khác hoa thường) → 409 Conflict
+POST {{baseUrl}}/api/accounts/register
+Content-Type: application/json
+
+{
+  "username": "BANG",
+  "password": "secret123"
+}
+
+### 3. Dữ liệu không hợp lệ → 400 kèm danh sách lỗi
+POST {{baseUrl}}/api/accounts/register
+Content-Type: application/json
+
+{
+  "username": "a!",
+  "password": "123"
+}
+
+### 4. Đăng nhập sai mật khẩu → 401
+POST {{baseUrl}}/api/accounts/login
+Content-Type: application/json
+
+{
+  "username": "bang",
+  "password": "wrong"
+}
+
+### 5. Đăng nhập đúng → 200
+POST {{baseUrl}}/api/accounts/login
+Content-Type: application/json
+
+{
+  "username": "bang",
+  "password": "secret123"
+}
+
+### 6. Xem profile
+GET {{baseUrl}}/api/players/{{playerId}}
+
+### 7. Đổi tên hiển thị
+PUT {{baseUrl}}/api/players/{{playerId}}/display-name
+Content-Type: application/json
+
+{
+  "displayName": "Hiep Si"
+}
+
+### 8. Nhận thưởng hằng ngày → 200 lần đầu, 409 từ lần thứ hai
+POST {{baseUrl}}/api/players/{{playerId}}/daily-reward
+
+### 9. Xem túi đồ
+GET {{baseUrl}}/api/players/{{playerId}}/inventory
+
+### 10. Dùng 1 bình máu → 200 nếu có, 409 nếu không có
+POST {{baseUrl}}/api/players/{{playerId}}/inventory/potion/use
+
+### 11. Người chơi không tồn tại → 404
+GET {{baseUrl}}/api/players/00000000-0000-0000-0000-000000000000

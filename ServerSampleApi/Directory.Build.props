@@ -1,0 +1,10 @@
+<Project>
+  <!-- Cấu hình chung cho mọi project trong solution.
+       Khi cài .NET 10 SDK, chỉ cần đổi net9.0 -> net10.0 ở đây. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+</Project>
