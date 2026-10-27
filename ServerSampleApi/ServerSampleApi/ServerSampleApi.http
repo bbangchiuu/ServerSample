@@ -3,4 +3,66 @@
 GET {{ServerSampleApi_HostAddress}}/weatherforecast/
 Accept: application/json
 
+### Đăng ký tài khoản → 201 Created
+# @name register
+POST {{ServerSampleApi_HostAddress}}/api/accounts/register
+Content-Type: application/json
+
+{
+  "username": "bang",
+  "password": "secret123"
+}
+
+### Đăng ký trùng tên (khác hoa thường) → 409 Conflict
+POST {{ServerSampleApi_HostAddress}}/api/accounts/register
+Content-Type: application/json
+
+{
+  "username": "BANG",
+  "password": "secret123"
+}
+
+### Dữ liệu không hợp lệ → 400 Bad Request kèm danh sách lỗi
+POST {{ServerSampleApi_HostAddress}}/api/accounts/register
+Content-Type: application/json
+
+{
+  "username": "a!",
+  "password": "123"
+}
+
+### Đăng nhập đúng → 200 OK (chạy request đăng ký ở trên trước)
+POST {{ServerSampleApi_HostAddress}}/api/accounts/login
+Content-Type: application/json
+
+{
+  "username": "Bang",
+  "password": "secret123"
+}
+
+### Đăng nhập sai mật khẩu → 401 Unauthorized
+POST {{ServerSampleApi_HostAddress}}/api/accounts/login
+Content-Type: application/json
+
+{
+  "username": "bang",
+  "password": "wrong-password"
+}
+
+### Đăng nhập với tên không tồn tại → 401, CÙNG thông báo với sai mật khẩu
+POST {{ServerSampleApi_HostAddress}}/api/accounts/login
+Content-Type: application/json
+
+{
+  "username": "khongtontai",
+  "password": "secret123"
+}
+
+### Xem profile người chơi → 200 OK
+# playerId lấy từ kết quả của request "register" ở trên (chạy request đó trước)
+GET {{ServerSampleApi_HostAddress}}/api/players/{{register.response.body.$.playerId}}
+
+### Người chơi không tồn tại → 404 Not Found
+GET {{ServerSampleApi_HostAddress}}/api/players/00000000-0000-0000-0000-000000000000
+
 ###

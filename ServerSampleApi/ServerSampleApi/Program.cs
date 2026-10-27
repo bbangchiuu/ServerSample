@@ -1,8 +1,20 @@
+using Microsoft.AspNetCore.Identity;
+using ServerSampleApi.Models;
+using ServerSampleApi.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
 builder.Services.AddControllers();
+
+// Singleton: cả server dùng chung MỘT AccountStore. Nếu mỗi request tạo một cái mới,
+// tài khoản vừa đăng ký sẽ biến mất ngay ở request sau.
+builder.Services.AddSingleton<AccountStore>();
+builder.Services.AddSingleton<PlayerStore>();
+// Băm mật khẩu (thuật toán PBKDF2), có sẵn trong ASP.NET Core, không cần cài thêm package.
+builder.Services.AddSingleton<IPasswordHasher<Account>, PasswordHasher<Account>>();
+
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
