@@ -10,5 +10,8 @@ namespace ServerSampleApi.Dtos
         public int Level { get; set; }
 
         public long Gold { get; set; }
+
+        /// <summary>Client dùng để hiện nút "Nhận thưởng" hay "Đã nhận hôm nay".</summary>
+        public DateOnly? LastDailyRewardDate { get; set; }
     }
 }

@@ -13,7 +13,7 @@ builder.Services.AddControllers();
 builder.Services.AddSingleton<AccountStore>();
 builder.Services.AddSingleton<PlayerStore>();
 // Băm mật khẩu (thuật toán PBKDF2), có sẵn trong ASP.NET Core, không cần cài thêm package.
-builder.Services.AddSingleton<IPasswordHasher<Account>, PasswordHasher<Account>>();
+builder.Services.AddSingleton<IPasswordHasher<AccountModel>, PasswordHasher<AccountModel>>();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();

@@ -4,7 +4,7 @@ namespace ServerSampleApi.Models
     /// Dữ liệu tài khoản lưu trên server.
     /// KHÔNG bao giờ trả thẳng class này về cho client, vì nó chứa PasswordHash.
     /// </summary>
-    public class Account
+    public class AccountModel
     {
         public Guid Id { get; set; }
 

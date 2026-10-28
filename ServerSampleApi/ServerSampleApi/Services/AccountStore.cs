@@ -12,21 +12,21 @@ namespace ServerSampleApi.Services
     public class AccountStore
     {
         // Key là username, không phân biệt hoa thường: "Bang" và "bang" là cùng một tài khoản.
-        private readonly ConcurrentDictionary<string, Account> _accountsByUsername = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, AccountModel> _accountsByUsername = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
         /// Thêm tài khoản mới. Trả về false nếu username đã có người dùng.
         /// TryAdd là thao tác nguyên tử: 2 người đăng ký cùng tên cùng lúc thì chỉ 1 người thành công.
         /// </summary>
-        public bool TryAdd(Account account)
+        public bool TryAdd(AccountModel account)
         {
             return _accountsByUsername.TryAdd(account.Username, account);
         }
 
         /// <summary>Tìm tài khoản theo username (không phân biệt hoa thường). Không có thì trả về null.</summary>
-        public Account? FindByUsername(string username)
+        public AccountModel? FindByUsername(string username)
         {
-            _accountsByUsername.TryGetValue(username, out Account? account);
+            _accountsByUsername.TryGetValue(username, out AccountModel? account);
             return account;
         }
     }

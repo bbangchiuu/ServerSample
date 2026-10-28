@@ -9,9 +9,9 @@ namespace ServerSampleApi.Services
     /// </summary>
     public class PlayerStore
     {
-        private readonly ConcurrentDictionary<Guid, Player> _players = new();
+        private readonly ConcurrentDictionary<Guid, PlayerModel> _players = new();
 
-        public void Add(Player player)
+        public void Add(PlayerModel player)
         {
             _players[player.Id] = player;
         }
@@ -22,9 +22,9 @@ namespace ServerSampleApi.Services
         }
 
         /// <summary>Tìm người chơi theo Id. Không có thì trả về null.</summary>
-        public Player? Find(Guid playerId)
+        public PlayerModel? Find(Guid playerId)
         {
-            _players.TryGetValue(playerId, out Player? player);
+            _players.TryGetValue(playerId, out PlayerModel? player);
             return player;
         }
     }

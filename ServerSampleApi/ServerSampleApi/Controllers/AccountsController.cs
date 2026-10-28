@@ -12,11 +12,11 @@ namespace ServerSampleApi.Controllers
     {
         private readonly AccountStore _accountStore;
         private readonly PlayerStore _playerStore;
-        private readonly IPasswordHasher<Account> _passwordHasher;
+        private readonly IPasswordHasher<AccountModel> _passwordHasher;
 
         // ASP.NET Core tự tạo Controller cho mỗi request và tự truyền các service vào đây
         // (Dependency Injection), dựa trên những gì đã đăng ký trong Program.cs.
-        public AccountsController(AccountStore accountStore, PlayerStore playerStore, IPasswordHasher<Account> passwordHasher)
+        public AccountsController(AccountStore accountStore, PlayerStore playerStore, IPasswordHasher<AccountModel> passwordHasher)
         {
             _accountStore = accountStore;
             _playerStore = playerStore;
@@ -33,7 +33,7 @@ namespace ServerSampleApi.Controllers
             // Chạy được tới đây nghĩa là request đã hợp lệ: [ApiController] đã tự kiểm tra
             // [Required], [StringLength]... trong RegisterRequest, sai thì tự trả 400 mà không gọi hàm này.
 
-            var account = new Account
+            var account = new AccountModel
             {
                 Id = Guid.NewGuid(),
                 Username = request.Username,
@@ -43,7 +43,7 @@ namespace ServerSampleApi.Controllers
 
             // Tạo nhân vật TRƯỚC khi thêm tài khoản: tài khoản vừa xuất hiện (đăng nhập được) là
             // nhân vật đã có sẵn, không có khoảnh khắc nào đăng nhập được mà xem profile lại bị 404.
-            _playerStore.Add(new Player
+            _playerStore.Add(new PlayerModel
             {
                 Id = account.Id,
                 DisplayName = account.Username,
@@ -85,7 +85,7 @@ namespace ServerSampleApi.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         public ActionResult<AccountResponse> Login(LoginRequest request)
         {
-            Account? account = _accountStore.FindByUsername(request.Username);
+            AccountModel? account = _accountStore.FindByUsername(request.Username);
 
             // Băm mật khẩu vừa gửi lên rồi so với bản băm đã lưu. Không bao giờ "giải băm" được,
             // nên cách duy nhất để kiểm tra là băm lại và so sánh.

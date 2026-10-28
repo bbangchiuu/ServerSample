@@ -65,4 +65,23 @@ GET {{ServerSampleApi_HostAddress}}/api/players/{{register.response.body.$.playe
 ### Người chơi không tồn tại → 404 Not Found
 GET {{ServerSampleApi_HostAddress}}/api/players/00000000-0000-0000-0000-000000000000
 
+### Đổi tên hiển thị → 200 OK, trả về profile mới
+PUT {{ServerSampleApi_HostAddress}}/api/players/{{register.response.body.$.playerId}}/display-name
+Content-Type: application/json
+
+{
+  "displayName": "  Hiep Si  "
+}
+
+### Tên chỉ toàn khoảng trắng ở hai đầu → 400 (sau khi bỏ khoảng trắng chỉ còn 2 ký tự)
+PUT {{ServerSampleApi_HostAddress}}/api/players/{{register.response.body.$.playerId}}/display-name
+Content-Type: application/json
+
+{
+  "displayName": "   ab   "
+}
+
+### Nhận thưởng hằng ngày → 200 lần đầu (+100 vàng), 409 từ lần thứ hai trong cùng ngày (UTC)
+POST {{ServerSampleApi_HostAddress}}/api/players/{{register.response.body.$.playerId}}/daily-reward
+
 ###
