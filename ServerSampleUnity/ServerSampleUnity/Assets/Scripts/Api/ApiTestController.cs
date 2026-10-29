@@ -1,7 +1,6 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using UnityEngine;
 
 /// <summary>
@@ -39,122 +38,134 @@ public class ApiTestController : MonoBehaviour
     }
 
     // ===== Các hành động =====
+    // Mỗi hành động: bật _busy (khoá nút) → gọi API → trong callback cập nhật dữ liệu, rồi tắt _busy.
+    // Mọi nhánh kết thúc (thành công hay lỗi) đều phải tắt _busy, nếu không các nút bị khoá mãi.
 
-    private async void Register()
+    private void Register()
     {
-        await RunAsync("Register", async () =>
-        {
-            ApiResult<AccountResponse> result = await _api.RegisterAsync(_username, _password);
-            if (Report(result))
-                await OnLoggedIn(result.Data!);
-        });
+        _busy = true;
+        _api.Register(_username, _password,
+            account =>
+            {
+                LogOk("Register", account);
+                OnLoggedIn(account);
+            },
+            Fail("Register"));
     }
 
-    private async void Login()
+    private void Login()
     {
-        await RunAsync("Login", async () =>
-        {
-            ApiResult<AccountResponse> result = await _api.LoginAsync(_username, _password);
-            if (Report(result))
-                await OnLoggedIn(result.Data!);
-        });
+        _busy = true;
+        _api.Login(_username, _password,
+            account =>
+            {
+                LogOk("Login", account);
+                OnLoggedIn(account);
+            },
+            Fail("Login"));
     }
 
-    private async Task OnLoggedIn(AccountResponse account)
+    private void OnLoggedIn(AccountResponse account)
     {
         _playerId = account.playerId;
-        await RefreshAll();
+        RefreshAll();
     }
 
-    private async void Refresh()
+    private void Refresh()
     {
-        await RunAsync("Refresh", RefreshAll);
-    }
-
-    private async Task RefreshAll()
-    {
-        ApiResult<PlayerProfile> profile = await _api.GetProfileAsync(_playerId);
-        if (Report(profile))
-            _profile = profile.Data;
-
-        ApiResult<InventoryResponse> inventory = await _api.GetInventoryAsync(_playerId);
-        if (Report(inventory))
-            _inventory = inventory.Data;
-    }
-
-    private async void ClaimDailyReward()
-    {
-        await RunAsync("Daily reward", async () =>
-        {
-            ApiResult<PlayerProfile> result = await _api.ClaimDailyRewardAsync(_playerId);
-            if (Report(result))
-            {
-                _profile = result.Data;
-                // Phần thưởng có thêm vật phẩm, nên tải lại túi đồ.
-                ApiResult<InventoryResponse> inventory = await _api.GetInventoryAsync(_playerId);
-                if (Report(inventory))
-                    _inventory = inventory.Data;
-            }
-        });
-    }
-
-    private async void UseItem(string itemId)
-    {
-        await RunAsync($"Use {itemId}", async () =>
-        {
-            ApiResult<InventoryResponse> result = await _api.UseItemAsync(_playerId, itemId);
-            if (Report(result))
-                _inventory = result.Data;
-        });
-    }
-
-    private async void ChangeDisplayName()
-    {
-        await RunAsync("Change name", async () =>
-        {
-            ApiResult<PlayerProfile> result = await _api.ChangeDisplayNameAsync(_playerId, _newDisplayName);
-            if (Report(result))
-                _profile = result.Data;
-        });
+        RefreshAll();
     }
 
     /// <summary>
-    /// Bọc mỗi hành động: khoá nút trong lúc chờ, và bắt mọi exception để lỗi không bị "nuốt mất"
-    /// (exception trong async void không có ai bắt sẽ chỉ hiện trong Console).
+    /// Tải profile, XONG rồi mới tải túi đồ: muốn làm việc B sau việc A thì phải gọi B
+    /// bên trong callback của A. Càng nhiều bước nối nhau thì callback càng lồng sâu.
     /// </summary>
-    private async Task RunAsync(string actionName, Func<Task> action)
+    private void RefreshAll()
     {
         _busy = true;
-        try
-        {
-            await action();
-        }
-        catch (Exception ex)
-        {
-            AddLog($"{actionName}: unexpected error: {ex.Message}");
-            Debug.LogException(ex);
-        }
-        finally
-        {
-            _busy = false;
-        }
+        _api.GetProfile(_playerId,
+            profile =>
+            {
+                _profile = profile;
+                _api.GetInventory(_playerId,
+                    inventory =>
+                    {
+                        _inventory = inventory;
+                        LogOk("Refresh", profile);
+                        _busy = false;
+                    },
+                    Fail("Get inventory"));
+            },
+            Fail("Get profile"));
     }
 
-    /// <summary>Ghi log kết quả một lần gọi API. Trả về true nếu thành công.</summary>
-    private bool Report<T>(ApiResult<T> result)
+    private void ClaimDailyReward()
     {
-        if (result.IsSuccess)
-        {
-            AddLog($"OK {result.StatusCode}: {result.RawBody}");
-            return true;
-        }
+        _busy = true;
+        _api.ClaimDailyReward(_playerId,
+            profile =>
+            {
+                LogOk("Daily reward", profile);
+                _profile = profile;
+                // Phần thưởng có thêm vật phẩm, nên tải lại túi đồ.
+                _api.GetInventory(_playerId,
+                    inventory =>
+                    {
+                        _inventory = inventory;
+                        _busy = false;
+                    },
+                    Fail("Get inventory"));
+            },
+            Fail("Daily reward"));
+    }
 
-        AddLog(result.StatusCode == 0
-            ? $"Cannot reach server: {result.ErrorMessage}"
-            : $"Error {result.StatusCode}: {result.ErrorMessage}");
-        if (result.StatusCode == 400)
-            AddLog($"   {result.RawBody}"); // lỗi validation: xem chi tiết từng trường
-        return false;
+    private void UseItem(string itemId)
+    {
+        _busy = true;
+        _api.UseItem(_playerId, itemId,
+            inventory =>
+            {
+                LogOk($"Use {itemId}", inventory);
+                _inventory = inventory;
+                _busy = false;
+            },
+            Fail($"Use {itemId}"));
+    }
+
+    private void ChangeDisplayName()
+    {
+        _busy = true;
+        _api.ChangeDisplayName(_playerId, _newDisplayName,
+            profile =>
+            {
+                LogOk("Change name", profile);
+                _profile = profile;
+                _busy = false;
+            },
+            Fail("Change name"));
+    }
+
+    /// <summary>Ghi log thành công, kèm dữ liệu nhận được dưới dạng JSON.</summary>
+    private void LogOk(string actionName, object data)
+    {
+        AddLog($"{actionName} OK: {JsonUtility.ToJson(data)}");
+    }
+
+    /// <summary>
+    /// Tạo sẵn callback xử lý lỗi dùng chung cho mọi hành động: ghi log, rồi mở khoá các nút.
+    /// Dùng: _api.Login(user, pass, onSuccess, Fail("Login"));
+    /// </summary>
+    private Action<ApiError> Fail(string actionName)
+    {
+        return error =>
+        {
+            AddLog(error.StatusCode == 0
+                ? $"{actionName}: cannot reach server: {error.Message}"
+                : $"{actionName}: error {error.StatusCode}: {error.Message}");
+            if (error.StatusCode == 400)
+                AddLog($"   {error.RawBody}"); // lỗi validation: xem chi tiết từng trường
+            _busy = false;
+        };
     }
 
     private void AddLog(string line)
@@ -228,5 +239,47 @@ public class ApiTestController : MonoBehaviour
             GUILayout.Label(line);
 
         GUILayout.EndArea();
+    }
+
+
+    public List<string> listUser = new();
+    private void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            for(int i = 0; i < 20; i++)
+            {
+                var data = new AccountRequest { username = $"bang{i}", password = _password };
+                _api.Register(data.username, data.password,
+                    account =>
+                    {
+                        listUser.Add(account.playerId);
+                        AddLog($"[Space] Register {account.username} OK");
+                    },
+                    error => AddLog($"[Space] Register {data.username}: error {error.StatusCode}: {error.Message}"));
+            }
+        }
+        else if (Input.GetKeyDown(KeyCode.A))
+        {
+            for (int i = 0; i < listUser.Count; i++)
+            {
+                var data = listUser[i];
+                _api.ClaimDailyReward(data, onSuccess =>
+                {
+                    AddLog($"[Space] {onSuccess.displayName} Claim Daily Reward  OK");
+                },
+                error =>
+                {
+                    AddLog($"[Space] {data}: error {error.StatusCode}: {error.Message}");
+                });
+            }
+        }
+        else if (Input.GetKeyDown(KeyCode.B))
+        {
+            for (int i = 0; i < 20; i++)
+            {
+                ClaimDailyReward();
+            }
+        }
     }
 }
