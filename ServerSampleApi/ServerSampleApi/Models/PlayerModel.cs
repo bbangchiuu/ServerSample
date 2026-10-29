@@ -26,5 +26,12 @@ namespace ServerSampleApi.Models
 
         /// <summary>Ngày (theo giờ UTC) gần nhất đã nhận thưởng hằng ngày. null = chưa nhận lần nào.</summary>
         public DateOnly? LastDailyRewardDate { get; set; }
+
+        /// <summary>
+        /// Túi đồ: mã vật phẩm → số lượng. Ví dụ { "potion": 3 }.
+        /// Không phân biệt hoa thường: "potion" và "Potion" là cùng một vật phẩm.
+        /// Dictionary thường KHÔNG an toàn khi nhiều thread cùng sửa, nên luôn đọc/sửa trong lock(SyncRoot).
+        /// </summary>
+        public Dictionary<string, int> Inventory { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 }

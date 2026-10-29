@@ -81,7 +81,13 @@ Content-Type: application/json
   "displayName": "   ab   "
 }
 
-### Nhận thưởng hằng ngày → 200 lần đầu (+100 vàng), 409 từ lần thứ hai trong cùng ngày (UTC)
+### Nhận thưởng hằng ngày → 200 lần đầu (+100 vàng, +1 potion), 409 từ lần thứ hai trong cùng ngày (UTC)
 POST {{ServerSampleApi_HostAddress}}/api/players/{{register.response.body.$.playerId}}/daily-reward
+
+### Xem túi đồ → 200 OK
+GET {{ServerSampleApi_HostAddress}}/api/players/{{register.response.body.$.playerId}}/inventory
+
+### Dùng 1 bình máu → 200 nếu còn, 409 nếu không có
+POST {{ServerSampleApi_HostAddress}}/api/players/{{register.response.body.$.playerId}}/inventory/potion/use
 
 ###

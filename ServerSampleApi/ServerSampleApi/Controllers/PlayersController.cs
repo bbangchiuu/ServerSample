@@ -15,8 +15,9 @@ namespace ServerSampleApi.Controllers
     [Route("api/[controller]")] // → /api/Players
     public class PlayersController : ControllerBase
     {
-        /// <summary>Số vàng nhận được mỗi ngày. Do SERVER quyết định, client không gửi lên được.</summary>
+        /// <summary>Phần thưởng mỗi ngày. Do SERVER quyết định, client không gửi lên được.</summary>
         public const int DailyRewardGold = 100;
+        public const string DailyRewardItemId = "potion";
 
         private readonly PlayerStore _playerStore;
 
@@ -114,6 +115,8 @@ namespace ServerSampleApi.Controllers
                 }
 
                 player.Gold += DailyRewardGold;
+                // GetValueOrDefault: chưa có vật phẩm này thì coi như đang có 0 cái.
+                player.Inventory[DailyRewardItemId] = player.Inventory.GetValueOrDefault(DailyRewardItemId) + 1;
                 player.LastDailyRewardDate = today;
 
                 return Ok(ToProfileResponse(player));
