@@ -1,0 +1,21 @@
+services:                         # danh sách các container cần chạy
+  postgres:                       # tên service (do mình đặt), các service khác gọi nó bằng tên này
+    image: postgres:17            # dùng image nào, phiên bản nào (lấy từ Docker Hub)
+    container_name: serversample-postgres   # tên container hiện trong Docker Desktop
+    environment:                  # biến môi trường truyền vào container
+      POSTGRES_USER: game         #   ┐ image postgres đọc 3 biến này
+      POSTGRES_PASSWORD: game_dev_password  #   ├ để tự tạo user, mật khẩu, database
+      POSTGRES_DB: game           #   ┘ ngay lần chạy đầu tiên
+    ports:
+      - "5432:5432"               # cổng Windows : cổng trong container
+    volumes:
+      - postgres-data:/var/lib/postgresql/data   # volume : thư mục dữ liệu bên trong container
+    healthcheck:                  # cách Docker kiểm tra "đã sẵn sàng chưa"
+      test: ["CMD-SHELL", "pg_isready -U game -d game"] # lệnh dùng để kiểm tra
+      interval: 5s                                      # cứ 5 giây kiểm tra một lần
+      timeout: 3s                                       # lệnh chạy quá 3 giây coi như thất bại
+      retries: 10                                       # thất bại 10 lần liên tiếp mới coi là "hỏng"
+    restart: unless-stopped       # tự chạy lại khi bật Docker, trừ khi bạn chủ động dừng
+
+volumes:                          # khai báo các volume được dùng ở trên
+  postgres-data:

@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using ServerSampleApi.Data;
 using ServerSampleApi.Models;
 using ServerSampleApi.Services;
 
@@ -14,6 +16,11 @@ builder.Services.AddSingleton<AccountStore>();
 builder.Services.AddSingleton<PlayerStore>();
 // Băm mật khẩu (thuật toán PBKDF2), có sẵn trong ASP.NET Core, không cần cài thêm package.
 builder.Services.AddSingleton<IPasswordHasher<AccountModel>, PasswordHasher<AccountModel>>();
+
+// Database PostgreSQL qua EF Core. Chuỗi kết nối "GameDb" nằm trong appsettings.Development.json.
+// AddDbContext đăng ký kiểu Scoped: MỖI REQUEST một GameDbContext riêng, xong request thì bỏ đi.
+builder.Services.AddDbContext<GameDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("GameDb")));
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
