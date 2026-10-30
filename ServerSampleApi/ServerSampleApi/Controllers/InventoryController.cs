@@ -1,7 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using ServerSampleApi.Data;
 using ServerSampleApi.Dtos;
 using ServerSampleApi.Models;
-using ServerSampleApi.Services;
 
 namespace ServerSampleApi.Controllers
 {
@@ -19,29 +20,26 @@ namespace ServerSampleApi.Controllers
     [Route("api/players/{playerId:guid}/inventory")]
     public class InventoryController : ControllerBase
     {
-        private readonly PlayerStore _playerStore;
+        private readonly GameDbContext _db;
 
-        public InventoryController(PlayerStore playerStore)
+        public InventoryController(GameDbContext db)
         {
-            _playerStore = playerStore;
+            _db = db;
         }
 
         // GET /api/players/{playerId}/inventory
         [HttpGet]
         [ProducesResponseType(typeof(InventoryResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public ActionResult<InventoryResponse> GetInventory(Guid playerId)
+        public async Task<ActionResult<InventoryResponse>> GetInventory(Guid playerId)
         {
-            PlayerModel? player = _playerStore.Find(playerId);
-            if (player == null)
+            // AnyAsync: chỉ hỏi "có tồn tại không", không đọc cả dòng. SQL: SELECT EXISTS (...)
+            if (!await _db.Players.AnyAsync(p => p.Id == playerId))
             {
                 return NotFound();
             }
 
-            lock (player.SyncRoot)
-            {
-                return Ok(ToInventoryResponse(player));
-            }
+            return Ok(await LoadInventoryAsync(playerId));
         }
 
         // POST /api/players/{playerId}/inventory/{itemId}/use
@@ -50,55 +48,55 @@ namespace ServerSampleApi.Controllers
         [ProducesResponseType(typeof(InventoryResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
-        public ActionResult<InventoryResponse> UseItem(Guid playerId, string itemId)
+        public async Task<ActionResult<InventoryResponse>> UseItem(Guid playerId, string itemId)
         {
-            PlayerModel? player = _playerStore.Find(playerId);
-            if (player == null)
+            // Mã vật phẩm luôn lưu chữ thường, nên "Potion" và "POTION" đều là "potion".
+            itemId = itemId.ToLowerInvariant();
+
+            // Tìm theo khoá chính 2 cột (PlayerId, ItemId).
+            InventoryItemModel? item = await _db.InventoryItems.FindAsync(playerId, itemId);
+            if (item == null)
             {
-                return NotFound();
+                // Không có dòng nào: hoặc người chơi không tồn tại (404), hoặc không có vật phẩm này (409).
+                if (!await _db.Players.AnyAsync(p => p.Id == playerId))
+                {
+                    return NotFound();
+                }
+
+                return Problem(
+                    title: "Item not owned",
+                    detail: $"The player has no '{itemId}'.",
+                    statusCode: StatusCodes.Status409Conflict);
             }
 
-            // Lại là "kiểm tra rồi mới làm" (còn vật phẩm không → trừ đi), nên phải nằm chung một lock,
-            // nếu không 2 request cùng lúc có thể dùng được 2 lần chỉ với 1 vật phẩm.
-            lock (player.SyncRoot)
+            // ⚠ CHƯA AN TOÀN khi nhiều request đến cùng lúc (giống thưởng hằng ngày): bước 4 sẽ sửa.
+            if (item.Quantity <= 1)
             {
-                if (!player.Inventory.TryGetValue(itemId, out int quantity) || quantity <= 0)
-                {
-                    return Problem(
-                        title: "Item not owned",
-                        detail: $"The player has no '{itemId}'.",
-                        statusCode: StatusCodes.Status409Conflict);
-                }
-
-                if (quantity == 1)
-                {
-                    // Dùng hết thì xoá hẳn khỏi túi, để túi đồ không còn dòng "potion: 0".
-                    player.Inventory.Remove(itemId);
-                }
-                else
-                {
-                    player.Inventory[itemId] = quantity - 1;
-                }
-
-                // Chưa có hiệu ứng (hồi máu...): bước này chỉ trừ số lượng.
-                return Ok(ToInventoryResponse(player));
+                // Dùng hết thì xoá hẳn dòng này, để túi đồ không còn dòng "potion: 0". SQL: DELETE FROM ...
+                _db.InventoryItems.Remove(item);
             }
+            else
+            {
+                item.Quantity -= 1;
+            }
+
+            await _db.SaveChangesAsync();
+
+            // Chưa có hiệu ứng (hồi máu...): bước này chỉ trừ số lượng.
+            return Ok(await LoadInventoryAsync(playerId));
         }
 
-        /// <summary>Chuyển túi đồ thành DTO, sắp xếp theo mã vật phẩm cho dễ đọc. Gọi bên trong lock.</summary>
-        private static InventoryResponse ToInventoryResponse(PlayerModel player)
+        /// <summary>Đọc túi đồ từ database, sắp xếp theo mã vật phẩm cho dễ đọc.</summary>
+        private async Task<InventoryResponse> LoadInventoryAsync(Guid playerId)
         {
-            var response = new InventoryResponse();
-            foreach (KeyValuePair<string, int> item in player.Inventory.OrderBy(pair => pair.Key))
-            {
-                response.Items.Add(new InventoryItemResponse
-                {
-                    ItemId = item.Key,
-                    Quantity = item.Value,
-                });
-            }
+            // Select: chỉ lấy đúng 2 cột cần thiết rồi tạo thẳng DTO, không đọc cả object InventoryItemModel.
+            List<InventoryItemResponse> items = await _db.InventoryItems
+                .Where(i => i.PlayerId == playerId)
+                .OrderBy(i => i.ItemId)
+                .Select(i => new InventoryItemResponse { ItemId = i.ItemId, Quantity = i.Quantity })
+                .ToListAsync();
 
-            return response;
+            return new InventoryResponse { Items = items };
         }
     }
 }

@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using ServerSampleApi.Data;
 using ServerSampleApi.Dtos;
 using ServerSampleApi.Models;
-using ServerSampleApi.Services;
 
 namespace ServerSampleApi.Controllers
 {
@@ -10,25 +12,25 @@ namespace ServerSampleApi.Controllers
     [Route("api/[controller]")] // [controller] = tên class bỏ chữ "Controller" → /api/Accounts
     public class AccountsController : ControllerBase
     {
-        private readonly AccountStore _accountStore;
-        private readonly PlayerStore _playerStore;
+        private readonly GameDbContext _db;
         private readonly IPasswordHasher<AccountModel> _passwordHasher;
 
         // ASP.NET Core tự tạo Controller cho mỗi request và tự truyền các service vào đây
         // (Dependency Injection), dựa trên những gì đã đăng ký trong Program.cs.
-        public AccountsController(AccountStore accountStore, PlayerStore playerStore, IPasswordHasher<AccountModel> passwordHasher)
+        // GameDbContext là Scoped: mỗi request nhận một GameDbContext riêng.
+        public AccountsController(GameDbContext db, IPasswordHasher<AccountModel> passwordHasher)
         {
-            _accountStore = accountStore;
-            _playerStore = playerStore;
+            _db = db;
             _passwordHasher = passwordHasher;
         }
 
         // POST /api/accounts/register
+        // async Task<...>: đọc/ghi database là chờ mạng, nên dùng await để không giữ thread trong lúc chờ.
         [HttpPost("register")]
         [ProducesResponseType(typeof(AccountResponse), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
-        public ActionResult<AccountResponse> Register(RegisterRequest request)
+        public async Task<ActionResult<AccountResponse>> Register(RegisterRequest request)
         {
             // Chạy được tới đây nghĩa là request đã hợp lệ: [ApiController] đã tự kiểm tra
             // [Required], [StringLength]... trong RegisterRequest, sai thì tự trả 400 mà không gọi hàm này.
@@ -41,20 +43,25 @@ namespace ServerSampleApi.Controllers
             };
             account.PasswordHash = _passwordHasher.HashPassword(account, request.Password);
 
-            // Tạo nhân vật TRƯỚC khi thêm tài khoản: tài khoản vừa xuất hiện (đăng nhập được) là
-            // nhân vật đã có sẵn, không có khoảnh khắc nào đăng nhập được mà xem profile lại bị 404.
-            _playerStore.Add(new PlayerModel
+            // Add chỉ đánh dấu "sẽ thêm", CHƯA ghi gì vào database.
+            _db.Accounts.Add(account);
+            _db.Players.Add(new PlayerModel
             {
                 Id = account.Id,
                 DisplayName = account.Username,
             });
 
-            if (!_accountStore.TryAdd(account))
+            try
             {
-                // Trùng tên: bỏ nhân vật vừa tạo.
-                _playerStore.Remove(account.Id);
-
-                // 409 Conflict: yêu cầu hợp lệ, nhưng xung đột với dữ liệu đang có (tên đã có người dùng).
+                // SaveChangesAsync ghi CẢ HAI dòng trong MỘT transaction: hoặc cả hai cùng được lưu,
+                // hoặc không dòng nào được lưu. Không bao giờ có tài khoản mà thiếu nhân vật.
+                await _db.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+            {
+                // Unique index trên Username từ chối: tên đã có người dùng (không phân biệt hoa thường).
+                // Database là "trọng tài" duy nhất: 2 request đăng ký cùng tên cùng lúc thì chỉ 1 cái thành công.
+                // 409 Conflict: yêu cầu hợp lệ, nhưng xung đột với dữ liệu đang có.
                 return Problem(
                     title: "Username already taken",
                     detail: $"The username '{request.Username}' is already in use.",
@@ -83,9 +90,14 @@ namespace ServerSampleApi.Controllers
         [ProducesResponseType(typeof(AccountResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        public ActionResult<AccountResponse> Login(LoginRequest request)
+        public async Task<ActionResult<AccountResponse>> Login(LoginRequest request)
         {
-            AccountModel? account = _accountStore.FindByUsername(request.Username);
+            // EF Core dịch dòng này thành câu SQL: SELECT ... FROM "Accounts" WHERE "Username" = @p LIMIT 1
+            // Cột Username kiểu citext nên "Bang" vẫn tìm ra tài khoản "bang".
+            // AsNoTracking: chỉ đọc, không sửa, nên bảo EF khỏi theo dõi thay đổi (nhanh hơn).
+            AccountModel? account = await _db.Accounts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Username == request.Username);
 
             // Băm mật khẩu vừa gửi lên rồi so với bản băm đã lưu. Không bao giờ "giải băm" được,
             // nên cách duy nhất để kiểm tra là băm lại và so sánh.

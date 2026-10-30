@@ -20,6 +20,7 @@ namespace ServerSampleApi.Migrations
                 .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("ServerSampleApi.Models.AccountModel", b =>
@@ -37,18 +38,58 @@ namespace ServerSampleApi.Migrations
 
                     b.Property<string>("Username")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasColumnType("citext");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Username")
+                        .IsUnique();
+
                     b.ToTable("Accounts");
+                });
+
+            modelBuilder.Entity("ServerSampleApi.Models.InventoryItemModel", b =>
+                {
+                    b.Property<Guid>("PlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ItemId")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.HasKey("PlayerId", "ItemId");
+
+                    b.ToTable("InventoryItems");
+                });
+
+            modelBuilder.Entity("ServerSampleApi.Models.LogEventModel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EventData")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("EventName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("PlayerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("LogEvents");
                 });
 
             modelBuilder.Entity("ServerSampleApi.Models.PlayerModel", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<string>("DisplayName")
@@ -68,6 +109,29 @@ namespace ServerSampleApi.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Players");
+                });
+
+            modelBuilder.Entity("ServerSampleApi.Models.InventoryItemModel", b =>
+                {
+                    b.HasOne("ServerSampleApi.Models.PlayerModel", null)
+                        .WithMany("Inventory")
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ServerSampleApi.Models.PlayerModel", b =>
+                {
+                    b.HasOne("ServerSampleApi.Models.AccountModel", null)
+                        .WithOne()
+                        .HasForeignKey("ServerSampleApi.Models.PlayerModel", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ServerSampleApi.Models.PlayerModel", b =>
+                {
+                    b.Navigation("Inventory");
                 });
 #pragma warning restore 612, 618
         }
