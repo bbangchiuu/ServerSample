@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ServerSampleApi.Controllers;
@@ -10,12 +9,12 @@ using ServerSampleApi.Dtos;
 namespace ServerSampleApi.Tests;
 
 /// <summary>Test API người chơi (PlayersController): profile, đổi tên, thưởng hằng ngày.</summary>
-public class PlayersApiTests : IClassFixture<WebApplicationFactory<Program>>
+public class PlayersApiTests : IClassFixture<ApiFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiFactory _factory;
     private readonly HttpClient _client;
 
-    public PlayersApiTests(WebApplicationFactory<Program> factory)
+    public PlayersApiTests(ApiFactory factory)
     {
         _factory = factory;
         _client = factory.CreateClient();

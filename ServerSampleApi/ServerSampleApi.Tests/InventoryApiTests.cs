@@ -1,17 +1,16 @@
 using System.Net;
 using System.Net.Http.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
 using ServerSampleApi.Controllers;
 using ServerSampleApi.Dtos;
 
 namespace ServerSampleApi.Tests;
 
 /// <summary>Test API túi đồ (InventoryController).</summary>
-public class InventoryApiTests : IClassFixture<WebApplicationFactory<Program>>
+public class InventoryApiTests : IClassFixture<ApiFactory>
 {
     private readonly HttpClient _client;
 
-    public InventoryApiTests(WebApplicationFactory<Program> factory)
+    public InventoryApiTests(ApiFactory factory)
     {
         _client = factory.CreateClient();
     }

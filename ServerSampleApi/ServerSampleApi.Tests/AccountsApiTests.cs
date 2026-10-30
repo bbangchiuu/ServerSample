@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
 using ServerSampleApi.Dtos;
 
 namespace ServerSampleApi.Tests;
@@ -14,11 +13,11 @@ namespace ServerSampleApi.Tests;
 ///
 /// IClassFixture: cả class dùng chung MỘT server (tạo một lần, nhanh hơn tạo mới cho từng test).
 /// </summary>
-public class AccountsApiTests : IClassFixture<WebApplicationFactory<Program>>
+public class AccountsApiTests : IClassFixture<ApiFactory>
 {
     private readonly HttpClient _client;
 
-    public AccountsApiTests(WebApplicationFactory<Program> factory)
+    public AccountsApiTests(ApiFactory factory)
     {
         // HttpClient đã trỏ sẵn tới server ảo.
         _client = factory.CreateClient();
