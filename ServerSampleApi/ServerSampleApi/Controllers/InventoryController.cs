@@ -53,11 +53,21 @@ namespace ServerSampleApi.Controllers
             // Mã vật phẩm luôn lưu chữ thường, nên "Potion" và "POTION" đều là "potion".
             itemId = itemId.ToLowerInvariant();
 
-            // Tìm theo khoá chính 2 cột (PlayerId, ItemId).
-            InventoryItemModel? item = await _db.InventoryItems.FindAsync(playerId, itemId);
-            if (item == null)
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+
+            // Trừ 1 NẾU còn ít nhất 1 cái, trong MỘT câu lệnh:
+            //   UPDATE "InventoryItems" SET "Quantity" = "Quantity" - 1
+            //   WHERE "PlayerId" = @playerId AND "ItemId" = @itemId AND "Quantity" > 0
+            // 10 request dùng 1 potion cùng lúc: request đầu khoá dòng và trừ xuống 0; các request sau chờ,
+            // kiểm tra lại "Quantity" > 0 thì thấy sai, nên không trừ được (0 dòng), và trả 409.
+            int updatedRows = await _db.InventoryItems
+                .Where(i => i.PlayerId == playerId && i.ItemId == itemId && i.Quantity > 0)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(i => i.Quantity, i => i.Quantity - 1));
+
+            if (updatedRows == 0)
             {
-                // Không có dòng nào: hoặc người chơi không tồn tại (404), hoặc không có vật phẩm này (409).
+                // Không trừ được: hoặc người chơi không tồn tại (404), hoặc không có vật phẩm này (409).
                 if (!await _db.Players.AnyAsync(p => p.Id == playerId))
                 {
                     return NotFound();
@@ -69,18 +79,13 @@ namespace ServerSampleApi.Controllers
                     statusCode: StatusCodes.Status409Conflict);
             }
 
-            // ⚠ CHƯA AN TOÀN khi nhiều request đến cùng lúc (giống thưởng hằng ngày): bước 4 sẽ sửa.
-            if (item.Quantity <= 1)
-            {
-                // Dùng hết thì xoá hẳn dòng này, để túi đồ không còn dòng "potion: 0". SQL: DELETE FROM ...
-                _db.InventoryItems.Remove(item);
-            }
-            else
-            {
-                item.Quantity -= 1;
-            }
+            // Dùng hết thì xoá hẳn dòng này, để túi đồ không còn dòng "potion: 0".
+            // ExecuteDeleteAsync: DELETE FROM "InventoryItems" WHERE ... AND "Quantity" <= 0
+            await _db.InventoryItems
+                .Where(i => i.PlayerId == playerId && i.ItemId == itemId && i.Quantity <= 0)
+                .ExecuteDeleteAsync();
 
-            await _db.SaveChangesAsync();
+            await transaction.CommitAsync();
 
             // Chưa có hiệu ứng (hồi máu...): bước này chỉ trừ số lượng.
             return Ok(await LoadInventoryAsync(playerId));

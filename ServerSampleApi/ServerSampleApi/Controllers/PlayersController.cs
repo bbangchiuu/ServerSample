@@ -90,46 +90,60 @@ namespace ServerSampleApi.Controllers
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<ActionResult<PlayerProfileResponse>> ClaimDailyReward(Guid playerId)
         {
-            // Include: nạp luôn túi đồ của người chơi (JOIN sang bảng InventoryItems), vì sắp thêm potion vào đó.
-            PlayerModel? player = await _db.Players
-                .Include(p => p.Inventory)
-                .FirstOrDefaultAsync(p => p.Id == playerId);
-            if (player == null)
-            {
-                return NotFound();
-            }
-
             // Dùng giờ UTC để "một ngày" là như nhau với mọi người chơi, ở bất kỳ múi giờ nào.
             DateOnly today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-            // ⚠ CHƯA AN TOÀN khi nhiều request đến cùng lúc: "kiểm tra" và "cộng thưởng" không còn được bảo vệ.
-            // lock trong RAM không dùng được nữa (mỗi request đọc ra một object PlayerModel RIÊNG từ database).
-            // Bước 4 sẽ sửa bằng cách để chính database đảm bảo chỉ một request thắng.
-            if (player.LastDailyRewardDate == today)
+            // Transaction: hai câu lệnh bên dưới (cộng vàng + thêm potion) cùng thành công, hoặc cùng bị huỷ.
+            // "await using": ra khỏi hàm mà chưa Commit thì transaction tự bị huỷ (rollback).
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+
+            // ExecuteUpdateAsync gửi thẳng MỘT câu lệnh UPDATE, không đọc người chơi ra C# trước:
+            //   UPDATE "Players"
+            //   SET "Gold" = "Gold" + 100, "LastDailyRewardDate" = @today
+            //   WHERE "Id" = @playerId AND ("LastDailyRewardDate" IS NULL OR "LastDailyRewardDate" < @today)
+            //
+            // Vì sao an toàn khi 20 request đến cùng lúc:
+            //  - Điều kiện "hôm nay chưa nhận" được kiểm tra NGAY TRONG câu UPDATE, không còn khe hở
+            //    giữa "kiểm tra" và "ghi" như khi đọc ra C# rồi mới quyết định.
+            //  - PostgreSQL khoá dòng của người chơi trong lúc UPDATE: request thứ hai phải chờ request đầu
+            //    xong, rồi kiểm tra lại điều kiện, lúc đó thấy ngày đã là hôm nay nên không cập nhật dòng nào.
+            //  - "Gold" + 100 được tính BÊN TRONG database, nên không còn lost update.
+            int updatedRows = await _db.Players
+                .Where(p => p.Id == playerId
+                    && (p.LastDailyRewardDate == null || p.LastDailyRewardDate < today))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(p => p.Gold, p => p.Gold + DailyRewardGold)
+                    .SetProperty(p => p.LastDailyRewardDate, today));
+
+            if (updatedRows == 0)
             {
+                // Không dòng nào được cập nhật: hoặc người chơi không tồn tại, hoặc hôm nay đã nhận rồi.
+                if (!await _db.Players.AnyAsync(p => p.Id == playerId))
+                {
+                    return NotFound();
+                }
+
                 return Problem(
                     title: "Daily reward already claimed",
                     detail: "Come back tomorrow (UTC).",
                     statusCode: StatusCodes.Status409Conflict);
             }
 
-            player.Gold += DailyRewardGold;
-            player.LastDailyRewardDate = today;
+            // Thêm 1 potion: chưa có thì tạo dòng mới, có rồi thì cộng thêm 1. Cũng là MỘT câu lệnh ("upsert").
+            // EF Core chưa có hàm sẵn cho việc này nên viết SQL trực tiếp. ExecuteSqlAsync với chuỗi $"..."
+            // tự biến {playerId}, {DailyRewardItemId} thành THAM SỐ an toàn, không ghép chuỗi
+            // (ghép chuỗi SQL bằng tay là lỗ hổng SQL injection).
+            await _db.Database.ExecuteSqlAsync($"""
+                INSERT INTO "InventoryItems" ("PlayerId", "ItemId", "Quantity")
+                VALUES ({playerId}, {DailyRewardItemId}, 1)
+                ON CONFLICT ("PlayerId", "ItemId")
+                DO UPDATE SET "Quantity" = "InventoryItems"."Quantity" + 1
+                """);
 
-            InventoryItemModel? potion = player.Inventory.FirstOrDefault(i => i.ItemId == DailyRewardItemId);
-            if (potion == null)
-            {
-                // Thêm vào danh sách của player: EF tự hiểu đây là một dòng MỚI cần INSERT vào InventoryItems.
-                player.Inventory.Add(new InventoryItemModel { ItemId = DailyRewardItemId, Quantity = 1 });
-            }
-            else
-            {
-                potion.Quantity += 1;
-            }
+            await transaction.CommitAsync();
 
-            // Một lần SaveChangesAsync = một transaction: cộng vàng, ghi ngày, thêm potion cùng thành công hoặc cùng thất bại.
-            await _db.SaveChangesAsync();
-
+            // Đọc lại profile sau khi cập nhật để trả về cho client.
+            PlayerModel player = await _db.Players.AsNoTracking().FirstAsync(p => p.Id == playerId);
             return Ok(ToProfileResponse(player));
         }
 

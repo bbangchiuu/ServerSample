@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using ServerSampleApi.Controllers;
+using ServerSampleApi.Data;
 using ServerSampleApi.Dtos;
 
 namespace ServerSampleApi.Tests;
@@ -9,10 +12,12 @@ namespace ServerSampleApi.Tests;
 /// <summary>Test API người chơi (PlayersController): profile, đổi tên, thưởng hằng ngày.</summary>
 public class PlayersApiTests : IClassFixture<WebApplicationFactory<Program>>
 {
+    private readonly WebApplicationFactory<Program> _factory;
     private readonly HttpClient _client;
 
     public PlayersApiTests(WebApplicationFactory<Program> factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -88,9 +93,41 @@ public class PlayersApiTests : IClassFixture<WebApplicationFactory<Program>>
             .ToArray();
         HttpResponseMessage[] responses = await Task.WhenAll(requests);
 
-        // Nhờ lock trong ClaimDailyReward: đúng 1 request thành công, và chỉ được cộng vàng 1 lần.
+        // Đúng 1 request thành công, 19 request còn lại bị từ chối ĐÀNG HOÀNG (409, không phải lỗi 500),
+        // và chỉ được cộng vàng 1 lần.
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+        Assert.Equal(19, responses.Count(response => response.StatusCode == HttpStatusCode.Conflict));
         PlayerProfileResponse? profile = await _client.GetFromJsonAsync<PlayerProfileResponse>($"/api/players/{playerId}");
         Assert.Equal(PlayersController.DailyRewardGold, profile!.Gold);
+    }
+
+    [Fact]
+    public async Task DailyReward_SecondDay_20RequestsAtTheSameTime_OnlyOneSucceeds()
+    {
+        // Ngày thứ hai khác ngày đầu: dòng potion ĐÃ CÓ trong túi, nên không còn khoá chính nào
+        // "vô tình" chặn hộ. Đây là chỗ bước 3 để lọt lỗi: cả 20 request đều báo thành công.
+        Guid playerId = await TestHelper.RegisterNewPlayerAsync(_client);
+        await _client.PostAsync($"/api/players/{playerId}/daily-reward", null); // ngày 1: 100 vàng, 1 potion
+
+        // Giả lập "đã sang ngày mới": sửa thẳng trong database thành "lần nhận gần nhất là hôm qua".
+        // Lấy GameDbContext từ chính server ảo của test (cùng database với API).
+        using (IServiceScope scope = _factory.Services.CreateScope())
+        {
+            GameDbContext db = scope.ServiceProvider.GetRequiredService<GameDbContext>();
+            DateOnly yesterday = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
+            await db.Players
+                .Where(p => p.Id == playerId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(p => p.LastDailyRewardDate, yesterday));
+        }
+
+        HttpResponseMessage[] responses = await Task.WhenAll(Enumerable.Range(0, 20)
+            .Select(_ => _client.PostAsync($"/api/players/{playerId}/daily-reward", null)));
+
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+        Assert.Equal(19, responses.Count(response => response.StatusCode == HttpStatusCode.Conflict));
+        PlayerProfileResponse? profile = await _client.GetFromJsonAsync<PlayerProfileResponse>($"/api/players/{playerId}");
+        Assert.Equal(2 * PlayersController.DailyRewardGold, profile!.Gold); // đúng 2 lần thưởng: 200 vàng
+        InventoryResponse? inventory = await _client.GetFromJsonAsync<InventoryResponse>($"/api/players/{playerId}/inventory");
+        Assert.Equal(2, Assert.Single(inventory!.Items).Quantity);           // đúng 2 potion
     }
 }
