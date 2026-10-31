@@ -1,9 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using ServerSampleApi.Controllers;
-using ServerSampleApi.Data;
 using ServerSampleApi.Dtos;
 
 namespace ServerSampleApi.Tests;
@@ -108,16 +105,7 @@ public class PlayersApiTests : IClassFixture<ApiFactory>
         Guid playerId = await TestHelper.RegisterNewPlayerAsync(_client);
         await _client.PostAsync($"/api/players/{playerId}/daily-reward", null); // ngày 1: 100 vàng, 1 potion
 
-        // Giả lập "đã sang ngày mới": sửa thẳng trong database thành "lần nhận gần nhất là hôm qua".
-        // Lấy GameDbContext từ chính server ảo của test (cùng database với API).
-        using (IServiceScope scope = _factory.Services.CreateScope())
-        {
-            GameDbContext db = scope.ServiceProvider.GetRequiredService<GameDbContext>();
-            DateOnly yesterday = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
-            await db.Players
-                .Where(p => p.Id == playerId)
-                .ExecuteUpdateAsync(setters => setters.SetProperty(p => p.LastDailyRewardDate, yesterday));
-        }
+        await TestHelper.SetLastDailyRewardToYesterdayAsync(_factory, playerId);
 
         HttpResponseMessage[] responses = await Task.WhenAll(Enumerable.Range(0, 20)
             .Select(_ => _client.PostAsync($"/api/players/{playerId}/daily-reward", null)));

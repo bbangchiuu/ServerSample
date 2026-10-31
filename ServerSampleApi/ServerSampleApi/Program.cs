@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using ServerSampleApi.Data;
 using ServerSampleApi.Models;
+using ServerSampleApi.Services;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,6 +18,16 @@ builder.Services.AddSingleton<IPasswordHasher<AccountModel>, PasswordHasher<Acco
 // AddDbContext đăng ký kiểu Scoped: MỖI REQUEST một GameDbContext riêng, xong request thì bỏ đi.
 builder.Services.AddDbContext<GameDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("GameDb")));
+
+// Redis. Chuỗi kết nối "Redis" nằm trong appsettings.Development.json: "localhost:6379,abortConnect=false".
+//  - ConnectionMultiplexer giữ kết nối tới Redis, tự kết nối lại khi bị rớt. Tạo MỘT lần (Singleton) và dùng chung.
+//  - abortConnect=false: lúc server khởi động mà Redis chưa bật thì server VẪN chạy, thư viện tự thử kết nối lại
+//    ở phía sau. Thiếu nó thì Connect() ném lỗi và cả API không khởi động được chỉ vì thiếu bảng xếp hạng.
+// Dùng dạng "factory" (sp => ...) để chỉ kết nối khi có nơi cần dùng lần đầu, lúc đó cấu hình đã đầy đủ
+// (kể cả phần test ghi đè).
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+    ConnectionMultiplexer.Connect(sp.GetRequiredService<IConfiguration>().GetConnectionString("Redis")!));
+builder.Services.AddSingleton<LeaderboardService>();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();

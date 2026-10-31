@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using ServerSampleApi.Data;
 using ServerSampleApi.Dtos;
 using ServerSampleApi.Models;
+using ServerSampleApi.Services;
+using StackExchange.Redis;
 
 namespace ServerSampleApi.Controllers
 {
@@ -21,10 +23,14 @@ namespace ServerSampleApi.Controllers
         public const string DailyRewardItemId = "potion";
 
         private readonly GameDbContext _db;
+        private readonly LeaderboardService _leaderboard;
+        private readonly ILogger<PlayersController> _logger;
 
-        public PlayersController(GameDbContext db)
+        public PlayersController(GameDbContext db, LeaderboardService leaderboard, ILogger<PlayersController> logger)
         {
             _db = db;
+            _leaderboard = leaderboard;
+            _logger = logger;
         }
 
         // GET /api/players/{playerId}
@@ -144,7 +150,31 @@ namespace ServerSampleApi.Controllers
 
             // Đọc lại profile sau khi cập nhật để trả về cho client.
             PlayerModel player = await _db.Players.AsNoTracking().FirstAsync(p => p.Id == playerId);
+
+            // Cập nhật bảng xếp hạng SAU khi PostgreSQL đã commit, bằng số vàng vừa đọc từ PostgreSQL.
+            await UpdateLeaderboardAsync(player);
+
             return Ok(ToProfileResponse(player));
+        }
+
+        /// <summary>
+        /// Ghi số vàng của người chơi lên bảng xếp hạng Redis.
+        ///
+        /// Redis lỗi (chưa bật, rớt mạng...) thì CHỈ ghi log cảnh báo, không trả lỗi cho client:
+        /// vàng và potion đã lưu chắc chắn trong PostgreSQL rồi. Nếu trả 500 ở đây, client tưởng nhận thưởng
+        /// thất bại và bấm lại, rồi bị báo "hôm nay đã nhận", rất khó hiểu. Bảng xếp hạng chậm cập nhật
+        /// một chút vẫn hơn làm hỏng chức năng chính.
+        /// </summary>
+        private async Task UpdateLeaderboardAsync(PlayerModel player)
+        {
+            try
+            {
+                await _leaderboard.SetGoldAsync(player.Id, player.Gold);
+            }
+            catch (Exception ex) when (ex is RedisException or RedisTimeoutException)
+            {
+                _logger.LogWarning(ex, "Could not update leaderboard for player {PlayerId}", player.Id);
+            }
         }
 
         /// <summary>Chuyển Player (dữ liệu bên trong) thành DTO trả về.</summary>

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ServerSampleApi.Data;
+using StackExchange.Redis;
 
 namespace ServerSampleApi.Tests;
 
@@ -15,7 +16,7 @@ namespace ServerSampleApi.Tests;
 /// Nhờ vậy test không bao giờ thêm tài khoản thử vào database "game" bạn dùng khi chạy API,
 /// và các lớp test chạy song song không đụng dữ liệu của nhau.
 ///
-/// Cần container PostgreSQL đang chạy (localhost:5432).
+/// Cần container PostgreSQL (localhost:5432) và Redis (localhost:6379) đang chạy.
 /// </summary>
 public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
@@ -25,10 +26,15 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     private string ConnectionString =>
         $"Host=localhost;Port=5432;Database={_databaseName};Username=game;Password=game_dev_password";
 
+    // Redis không có "database riêng theo tên" như PostgreSQL, nên mỗi lớp test dùng một KEY riêng
+    // cho bảng xếp hạng, không đụng vào key "leaderboard:gold" thật.
+    private string LeaderboardKey => $"test:{_databaseName}:leaderboard:gold";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Ghi đè chuỗi kết nối "GameDb" trong appsettings.Development.json, chỉ trong server ảo của test.
         builder.UseSetting("ConnectionStrings:GameDb", ConnectionString);
+        builder.UseSetting("Leaderboard:RedisKey", LeaderboardKey);
     }
 
     /// <summary>xUnit gọi hàm này MỘT lần, trước test đầu tiên của lớp test.</summary>
@@ -49,6 +55,9 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         {
             GameDbContext db = scope.ServiceProvider.GetRequiredService<GameDbContext>();
             await db.Database.EnsureDeletedAsync(); // DROP DATABASE game_test_...
+
+            IConnectionMultiplexer redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
+            await redis.GetDatabase().KeyDeleteAsync(LeaderboardKey); // DEL test:...:leaderboard:gold
         }
 
         await base.DisposeAsync();

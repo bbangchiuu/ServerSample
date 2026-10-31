@@ -1,4 +1,7 @@
 using System.Net.Http.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using ServerSampleApi.Data;
 using ServerSampleApi.Dtos;
 
 namespace ServerSampleApi.Tests;
@@ -24,5 +27,20 @@ internal static class TestHelper
 
         AccountResponse? account = await response.Content.ReadFromJsonAsync<AccountResponse>();
         return account!.PlayerId;
+    }
+
+    /// <summary>
+    /// Giả lập "đã sang ngày mới": sửa thẳng trong database thành "lần nhận thưởng gần nhất là hôm qua",
+    /// để người chơi nhận thưởng hằng ngày thêm được một lần nữa.
+    /// Lấy GameDbContext từ chính server ảo của test (cùng database với API).
+    /// </summary>
+    public static async Task SetLastDailyRewardToYesterdayAsync(ApiFactory factory, Guid playerId)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        GameDbContext db = scope.ServiceProvider.GetRequiredService<GameDbContext>();
+        DateOnly yesterday = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
+        await db.Players
+            .Where(p => p.Id == playerId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(p => p.LastDailyRewardDate, yesterday));
     }
 }
