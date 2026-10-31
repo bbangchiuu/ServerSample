@@ -27,12 +27,23 @@ builder.Services.AddDbContext<GameDbContext>(options =>
 // (kể cả phần test ghi đè).
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     ConnectionMultiplexer.Connect(sp.GetRequiredService<IConfiguration>().GetConnectionString("Redis")!));
-builder.Services.AddSingleton<LeaderboardService>();
+// Scoped (không phải Singleton) vì LeaderboardService dùng GameDbContext, mà GameDbContext là Scoped.
+builder.Services.AddScoped<LeaderboardService>();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
+
+// Redis chưa có bảng xếp hạng thì dựng lại từ PostgreSQL, TRƯỚC khi server nhận request.
+// Ngoài HTTP request thì không có scope sẵn, nên tự tạo một scope để lấy LeaderboardService (Scoped).
+// Test tắt bước này (Leaderboard:RebuildOnStartup = false) vì lúc server ảo khởi động,
+// database test chưa chạy migration, chưa có bảng Players.
+if (app.Configuration.GetValue("Leaderboard:RebuildOnStartup", defaultValue: true))
+{
+    using IServiceScope scope = app.Services.CreateScope();
+    await scope.ServiceProvider.GetRequiredService<LeaderboardService>().RebuildIfMissingAsync();
+}
 
 // Configure the HTTP request pipeline.
 //if (app.Environment.IsDevelopment())

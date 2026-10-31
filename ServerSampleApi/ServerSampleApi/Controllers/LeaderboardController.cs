@@ -70,6 +70,17 @@ namespace ServerSampleApi.Controllers
             return Ok(ToEntryResponse(entry, displayName));
         }
 
+        // POST /api/leaderboard/rebuild
+        // Dựng lại toàn bộ bảng xếp hạng từ PostgreSQL. Dùng khi Redis bị thiếu hoặc sai dữ liệu.
+        // ⚠ CHƯA ĐƯỢC BẢO VỆ: ai cũng gọi được. Giai đoạn 4 (JWT) sẽ giới hạn chỉ admin mới gọi được.
+        [HttpPost("rebuild")]
+        [ProducesResponseType(typeof(LeaderboardRebuildResponse), StatusCodes.Status200OK)]
+        public async Task<ActionResult<LeaderboardRebuildResponse>> Rebuild()
+        {
+            int playerCount = await _leaderboard.RebuildAsync();
+            return Ok(new LeaderboardRebuildResponse { PlayerCount = playerCount });
+        }
+
         private static LeaderboardEntryResponse ToEntryResponse(LeaderboardEntry entry, string displayName)
         {
             return new LeaderboardEntryResponse

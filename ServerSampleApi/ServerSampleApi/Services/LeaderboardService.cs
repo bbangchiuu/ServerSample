@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using ServerSampleApi.Data;
 using StackExchange.Redis;
 
 namespace ServerSampleApi.Services
@@ -12,20 +14,31 @@ namespace ServerSampleApi.Services
     ///  - Score:  số vàng.
     ///
     /// Số vàng GỐC vẫn nằm trong PostgreSQL. Redis chỉ giữ một BẢN SAO để xếp hạng cho nhanh:
-    /// mất dữ liệu Redis thì dựng lại được từ PostgreSQL, còn mất PostgreSQL là mất thật.
+    /// mất dữ liệu Redis thì dựng lại được từ PostgreSQL (RebuildAsync), còn mất PostgreSQL là mất thật.
     ///
-    /// Đăng ký Singleton: cả server dùng chung một object, vì kết nối Redis (IConnectionMultiplexer)
-    /// được thiết kế để tạo MỘT lần và dùng chung cho mọi request, mọi luồng.
+    /// Đăng ký Scoped (mỗi request một object) vì nó dùng GameDbContext, mà GameDbContext cũng là Scoped.
+    /// Kết nối Redis (IConnectionMultiplexer) thì vẫn là Singleton dùng chung, nên tạo object này rất nhẹ.
     /// </summary>
     public class LeaderboardService
     {
-        private readonly IDatabase _redis;
-        private readonly RedisKey _key;
+        /// <summary>Mỗi lần gửi sang Redis tối đa 1000 người, không gửi từng người một.</summary>
+        private const int RebuildBatchSize = 1000;
 
-        public LeaderboardService(IConnectionMultiplexer redis, IConfiguration configuration)
+        private readonly IDatabase _redis;
+        private readonly GameDbContext _db;
+        private readonly ILogger<LeaderboardService> _logger;
+        private readonly string _key;
+
+        public LeaderboardService(
+            IConnectionMultiplexer redis,
+            GameDbContext db,
+            IConfiguration configuration,
+            ILogger<LeaderboardService> logger)
         {
             // GetDatabase(): lấy "cửa" để gửi lệnh. Rất nhẹ, không mở kết nối mới.
             _redis = redis.GetDatabase();
+            _db = db;
+            _logger = logger;
 
             // Cho phép đổi tên key qua cấu hình: test dùng key riêng để không đụng bảng xếp hạng thật.
             _key = configuration["Leaderboard:RedisKey"] ?? "leaderboard:gold";
@@ -80,6 +93,95 @@ namespace ServerSampleApi.Services
             }
 
             return new LeaderboardEntry(playerId, (long)score.Value, rank.Value + 1);
+        }
+
+        /// <summary>
+        /// Dựng lại TOÀN BỘ bảng xếp hạng từ PostgreSQL (dữ liệu gốc). Trả về số người chơi đã nạp vào.
+        ///
+        /// Không xoá key cũ rồi nạp dần vào, vì trong lúc nạp, ai xem bảng xếp hạng sẽ thấy bảng
+        /// trống hoặc thiếu người. Thay vào đó:
+        ///  1. Nạp hết vào một key TẠM, ví dụ "leaderboard:gold:rebuild:3f2a..."
+        ///  2. Đổi tên key tạm thành "leaderboard:gold" (RENAME). Lệnh RENAME là nguyên tử: key cũ bị thay
+        ///     bằng key mới trong MỘT bước, người xem chỉ thấy bảng cũ hoặc bảng mới, không bao giờ thấy bảng dở dang.
+        /// </summary>
+        public async Task<int> RebuildAsync()
+        {
+            // Mỗi lần dựng lại dùng một key tạm khác nhau, để 2 lần dựng lại cùng lúc không ghi chồng lên nhau.
+            string tempKey = $"{_key}:rebuild:{Guid.NewGuid():N}";
+            int playerCount = 0;
+
+            try
+            {
+                List<SortedSetEntry> batch = new(RebuildBatchSize);
+
+                // AsAsyncEnumerable: đọc TỪNG DÒNG từ PostgreSQL khi cần, không tải cả bảng Players vào RAM
+                // một lần. Có 1 triệu người chơi thì RAM vẫn chỉ giữ khoảng 1000 người (một batch) mỗi lúc.
+                // SQL: SELECT "Id", "Gold" FROM "Players" WHERE "Gold" > 0
+                var players = _db.Players
+                    .Where(p => p.Gold > 0)
+                    .Select(p => new { p.Id, p.Gold })
+                    .AsAsyncEnumerable();
+
+                await foreach (var player in players)
+                {
+                    batch.Add(new SortedSetEntry(player.Id.ToString(), player.Gold));
+                    if (batch.Count == RebuildBatchSize)
+                    {
+                        // Một lệnh ZADD chứa 1000 cặp (score, member), nhanh hơn rất nhiều so với 1000 lệnh ZADD.
+                        await _redis.SortedSetAddAsync(tempKey, batch.ToArray());
+                        playerCount += batch.Count;
+                        batch.Clear();
+                    }
+                }
+
+                if (batch.Count > 0)
+                {
+                    await _redis.SortedSetAddAsync(tempKey, batch.ToArray());
+                    playerCount += batch.Count;
+                }
+
+                if (playerCount == 0)
+                {
+                    // Không ai có vàng: key tạm chưa từng được tạo (Redis không có Sorted Set rỗng),
+                    // nên không RENAME được. Bảng xếp hạng đúng lúc này là bảng trống, tức là xoá key.
+                    await _redis.KeyDeleteAsync(_key);
+                }
+                else
+                {
+                    await _redis.KeyRenameAsync(tempKey, _key); // RENAME tempKey leaderboard:gold
+                }
+
+                return playerCount;
+            }
+            finally
+            {
+                // Lỡ có lỗi giữa chừng (mất kết nối PostgreSQL...) thì xoá key tạm, không để rác lại trong Redis.
+                // Nếu đã RENAME thành công thì key tạm không còn nữa, lệnh này không làm gì cả.
+                await _redis.KeyDeleteAsync(tempKey);
+            }
+        }
+
+        /// <summary>
+        /// Gọi lúc server khởi động: Redis chưa có bảng xếp hạng (mới cài Redis, lỡ xoá key, mất dữ liệu...)
+        /// thì tự dựng lại từ PostgreSQL. Redis lỗi thì chỉ ghi log cảnh báo, server vẫn khởi động bình thường.
+        /// </summary>
+        public async Task RebuildIfMissingAsync()
+        {
+            try
+            {
+                // EXISTS leaderboard:gold
+                if (await _redis.KeyExistsAsync(_key))
+                {
+                    return;
+                }
+
+                int playerCount = await RebuildAsync();
+                _logger.LogInformation("Leaderboard rebuilt from PostgreSQL with {PlayerCount} players", playerCount);
+            }
+            catch (Exception ex) when (ex is RedisException or RedisTimeoutException)
+            {
+                _logger.LogWarning(ex, "Could not rebuild leaderboard on startup");
+            }
         }
     }
 }

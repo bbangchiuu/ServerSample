@@ -28,13 +28,16 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     // Redis không có "database riêng theo tên" như PostgreSQL, nên mỗi lớp test dùng một KEY riêng
     // cho bảng xếp hạng, không đụng vào key "leaderboard:gold" thật.
-    private string LeaderboardKey => $"test:{_databaseName}:leaderboard:gold";
+    public string LeaderboardKey => $"test:{_databaseName}:leaderboard:gold";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Ghi đè chuỗi kết nối "GameDb" trong appsettings.Development.json, chỉ trong server ảo của test.
         builder.UseSetting("ConnectionStrings:GameDb", ConnectionString);
         builder.UseSetting("Leaderboard:RedisKey", LeaderboardKey);
+
+        // Không tự dựng lại bảng xếp hạng lúc khởi động: khi đó database test chưa chạy migration.
+        builder.UseSetting("Leaderboard:RebuildOnStartup", "false");
     }
 
     /// <summary>xUnit gọi hàm này MỘT lần, trước test đầu tiên của lớp test.</summary>

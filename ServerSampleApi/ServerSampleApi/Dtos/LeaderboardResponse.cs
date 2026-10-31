@@ -21,4 +21,10 @@ namespace ServerSampleApi.Dtos
 
         public long Gold { get; set; }
     }
+
+    public class LeaderboardRebuildResponse
+    {
+        /// <summary>Số người chơi đã được nạp vào bảng xếp hạng.</summary>
+        public int PlayerCount { get; set; }
+    }
 }

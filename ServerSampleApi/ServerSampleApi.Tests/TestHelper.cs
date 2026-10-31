@@ -43,4 +43,17 @@ internal static class TestHelper
             .Where(p => p.Id == playerId)
             .ExecuteUpdateAsync(setters => setters.SetProperty(p => p.LastDailyRewardDate, yesterday));
     }
+
+    /// <summary>
+    /// Sửa thẳng số vàng trong PostgreSQL, KHÔNG đi qua API nên Redis không biết gì.
+    /// Giả lập người chơi đã có vàng từ trước khi có bảng xếp hạng.
+    /// </summary>
+    public static async Task SetGoldInDatabaseAsync(ApiFactory factory, Guid playerId, long gold)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        GameDbContext db = scope.ServiceProvider.GetRequiredService<GameDbContext>();
+        await db.Players
+            .Where(p => p.Id == playerId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(p => p.Gold, gold));
+    }
 }
