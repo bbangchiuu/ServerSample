@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -87,25 +88,41 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 builder.Services.AddScoped<LeaderboardService>();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-// Thêm kiểu xác thực "Bearer" vào tài liệu OpenAPI, để Swagger UI hiện nút "Authorize" cho dán token vào.
-builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document, context, cancellationToken) =>
+builder.Services.AddOpenApi(options =>
 {
-    document.Components ??= new OpenApiComponents();
-    document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
-    document.Components.SecuritySchemes["Bearer"] = new OpenApiSecurityScheme
+    // 1. Khai báo kiểu xác thực "Bearer" một lần cho cả tài liệu, để Swagger UI hiện nút "Authorize" cho dán token vào.
+    options.AddDocumentTransformer((document, context, cancellationToken) =>
     {
-        Type = SecuritySchemeType.Http,
-        Scheme = "bearer",
-        BearerFormat = "JWT",
-        Description = "Dán accessToken lấy từ /api/accounts/login (không cần gõ chữ Bearer).",
-    };
-    document.Security ??= new List<OpenApiSecurityRequirement>();
-    document.Security.Add(new OpenApiSecurityRequirement
-    {
-        [new OpenApiSecuritySchemeReference("Bearer", document)] = new List<string>(),
+        document.Components ??= new OpenApiComponents();
+        document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
+        document.Components.SecuritySchemes["Bearer"] = new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "JWT",
+            Description = "Dán accessToken lấy từ /api/accounts/login (không cần gõ chữ Bearer).",
+        };
+        return Task.CompletedTask;
     });
-    return Task.CompletedTask;
-}));
+
+    // 2. Với TỪNG API: có [Authorize] (ở hàm hoặc ở class) và không có [AllowAnonymous] thì mới gắn "cần Bearer".
+    //    Swagger UI chỉ hiện ổ khoá ở những API này, nhìn vào là biết API nào cần đăng nhập.
+    //    Đọc thẳng từ attribute trong code, nên thêm/bỏ [Authorize] là tài liệu tự đúng theo, không phải sửa tay.
+    options.AddOperationTransformer((operation, context, cancellationToken) =>
+    {
+        IList<object> metadata = context.Description.ActionDescriptor.EndpointMetadata;
+        bool requiresLogin = metadata.OfType<IAuthorizeData>().Any() && !metadata.OfType<IAllowAnonymous>().Any();
+        if (requiresLogin)
+        {
+            operation.Security ??= new List<OpenApiSecurityRequirement>();
+            operation.Security.Add(new OpenApiSecurityRequirement
+            {
+                [new OpenApiSecuritySchemeReference("Bearer", context.Document)] = new List<string>(),
+            });
+        }
+        return Task.CompletedTask;
+    });
+});
 
 var app = builder.Build();
 
