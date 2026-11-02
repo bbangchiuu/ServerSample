@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using ServerSampleApi.Auth;
 using ServerSampleApi.Data;
 using ServerSampleApi.Dtos;
 using ServerSampleApi.Models;
@@ -14,14 +15,16 @@ namespace ServerSampleApi.Controllers
     {
         private readonly GameDbContext _db;
         private readonly IPasswordHasher<AccountModel> _passwordHasher;
+        private readonly TokenService _tokenService;
 
         // ASP.NET Core tự tạo Controller cho mỗi request và tự truyền các service vào đây
         // (Dependency Injection), dựa trên những gì đã đăng ký trong Program.cs.
         // GameDbContext là Scoped: mỗi request nhận một GameDbContext riêng.
-        public AccountsController(GameDbContext db, IPasswordHasher<AccountModel> passwordHasher)
+        public AccountsController(GameDbContext db, IPasswordHasher<AccountModel> passwordHasher, TokenService tokenService)
         {
             _db = db;
             _passwordHasher = passwordHasher;
+            _tokenService = tokenService;
         }
 
         // POST /api/accounts/register
@@ -68,11 +71,8 @@ namespace ServerSampleApi.Controllers
                     statusCode: StatusCodes.Status409Conflict);
             }
 
-            var response = new AccountResponse
-            {
-                PlayerId = account.Id,
-                Username = account.Username,
-            };
+            // Đăng ký xong là đăng nhập luôn: trả token ngay, client không phải gọi login thêm lần nữa.
+            AccountResponse response = ToAccountResponse(account);
 
             // 201 Created: đã tạo tài nguyên mới. Header "Location" chỉ tới profile người chơi.
             // CreatedAtAction tự sinh đường dẫn từ route thật của PlayersController.GetProfile,
@@ -85,7 +85,7 @@ namespace ServerSampleApi.Controllers
         }
 
         // POST /api/accounts/login
-        // Giai đoạn này đăng nhập chỉ trả về PlayerId. Giai đoạn 4 sẽ trả về JWT token để bảo vệ các API khác.
+        // Đúng mật khẩu thì trả về JWT. Bước tiếp theo các API khác sẽ đòi token này.
         [HttpPost("login")]
         [ProducesResponseType(typeof(AccountResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -115,11 +115,20 @@ namespace ServerSampleApi.Controllers
             }
 
             // 200 OK. account! : tới đây chắc chắn account khác null (đã kiểm tra trong passwordCorrect).
-            return Ok(new AccountResponse
+            return Ok(ToAccountResponse(account!));
+        }
+
+        /// <summary>Tạo token mới cho tài khoản rồi gói vào DTO trả về.</summary>
+        private AccountResponse ToAccountResponse(AccountModel account)
+        {
+            AccessToken accessToken = _tokenService.CreateAccessToken(account);
+            return new AccountResponse
             {
-                PlayerId = account!.Id,
+                PlayerId = account.Id,
                 Username = account.Username,
-            });
+                AccessToken = accessToken.Token,
+                AccessTokenExpiresAt = accessToken.ExpiresAt,
+            };
         }
     }
 }

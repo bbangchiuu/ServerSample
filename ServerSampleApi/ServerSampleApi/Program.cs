@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using ServerSampleApi.Auth;
 using ServerSampleApi.Data;
 using ServerSampleApi.Models;
 using ServerSampleApi.Services;
@@ -13,6 +14,16 @@ builder.Services.AddControllers();
 
 // Băm mật khẩu (thuật toán PBKDF2), có sẵn trong ASP.NET Core, không cần cài thêm package.
 builder.Services.AddSingleton<IPasswordHasher<AccountModel>, PasswordHasher<AccountModel>>();
+
+// JWT: đọc nhóm "Jwt" trong cấu hình vào JwtOptions.
+//  - ValidateDataAnnotations: kiểm tra [Required], [MinLength(32)]... trong JwtOptions.
+//  - ValidateOnStart: kiểm tra NGAY khi server khởi động. Quên đặt Jwt:SigningKey thì server báo lỗi rõ ràng
+//    và không chạy, thay vì chạy bình thường rồi mới lỗi ở lần đăng nhập đầu tiên.
+builder.Services.AddOptions<JwtOptions>()
+    .BindConfiguration(JwtOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddSingleton<TokenService>();
 
 // Database PostgreSQL qua EF Core. Chuỗi kết nối "GameDb" nằm trong appsettings.Development.json.
 // AddDbContext đăng ký kiểu Scoped: MỖI REQUEST một GameDbContext riêng, xong request thì bỏ đi.

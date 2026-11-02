@@ -30,6 +30,12 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     // cho bảng xếp hạng, không đụng vào key "leaderboard:gold" thật.
     public string LeaderboardKey => $"test:{_databaseName}:leaderboard:gold";
 
+    /// <summary>
+    /// Khoá ký JWT chỉ dùng cho test. Không lấy khoá trong User Secrets, vì User Secrets chỉ có trên máy bạn:
+    /// máy khác (hoặc server CI chạy test tự động) không có thì test sẽ hỏng.
+    /// </summary>
+    public const string JwtSigningKey = "test-only-signing-key-0123456789-abcdefghij";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Ghi đè chuỗi kết nối "GameDb" trong appsettings.Development.json, chỉ trong server ảo của test.
@@ -38,6 +44,8 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
         // Không tự dựng lại bảng xếp hạng lúc khởi động: khi đó database test chưa chạy migration.
         builder.UseSetting("Leaderboard:RebuildOnStartup", "false");
+
+        builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
     }
 
     /// <summary>xUnit gọi hàm này MỘT lần, trước test đầu tiên của lớp test.</summary>

@@ -1,5 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 using ServerSampleApi.Dtos;
 
 namespace ServerSampleApi.Tests;
@@ -84,6 +87,44 @@ public class AccountsApiTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         AccountResponse? loggedIn = await response.Content.ReadFromJsonAsync<AccountResponse>();
         Assert.Equal(account!.PlayerId, loggedIn!.PlayerId);
+    }
+
+    [Fact]
+    public async Task Login_ReturnsValidJwt_WithPlayerIdAsSubject()
+    {
+        string username = TestHelper.NewUsername();
+        await _client.PostAsJsonAsync("/api/accounts/register", new RegisterRequest { Username = username, Password = TestHelper.Password });
+
+        HttpResponseMessage response = await _client.PostAsJsonAsync("/api/accounts/login",
+            new LoginRequest { Username = username, Password = TestHelper.Password });
+        AccountResponse? account = await response.Content.ReadFromJsonAsync<AccountResponse>();
+
+        // Kiểm tra token y như server sẽ kiểm tra ở bước sau: đúng chữ ký, đúng người phát hành,
+        // đúng người nhận, chưa hết hạn.
+        TokenValidationResult result = await new JsonWebTokenHandler().ValidateTokenAsync(account!.AccessToken,
+            new TokenValidationParameters
+            {
+                ValidIssuer = "ServerSampleApi",
+                ValidAudience = "ServerSampleUnity",
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(ApiFactory.JwtSigningKey)),
+            });
+        Assert.True(result.IsValid, result.Exception?.Message);
+
+        // Claim "sub" chính là playerId.
+        JsonWebToken token = (JsonWebToken)result.SecurityToken;
+        Assert.Equal(account.PlayerId.ToString(), token.Subject);
+        Assert.True(account.AccessTokenExpiresAt > DateTime.UtcNow);
+    }
+
+    [Fact]
+    public async Task Register_AlsoReturnsAccessToken()
+    {
+        HttpResponseMessage response = await _client.PostAsJsonAsync("/api/accounts/register",
+            new RegisterRequest { Username = TestHelper.NewUsername(), Password = TestHelper.Password });
+        AccountResponse? account = await response.Content.ReadFromJsonAsync<AccountResponse>();
+
+        // JWT luôn có đúng 3 phần: header.payload.signature
+        Assert.Equal(3, account!.AccessToken.Split('.').Length);
     }
 
     // [Theory] + [InlineData]: CÙNG một test, chạy lại với nhiều bộ dữ liệu khác nhau.
