@@ -28,21 +28,21 @@ public class LeaderboardRebuildApiTests : IClassFixture<ApiFactory>
     {
         // A có 500 vàng từ trước (sửa thẳng trong PostgreSQL, Redis không biết).
         // B mới tạo tài khoản và nhận thưởng: 100 vàng, có trên Redis.
-        Guid playerA = await TestHelper.RegisterNewPlayerAsync(_client);
-        await TestHelper.SetGoldInDatabaseAsync(_factory, playerA, 500);
-        Guid playerB = await TestHelper.RegisterNewPlayerAsync(_client);
-        await _client.PostAsync($"/api/players/{playerB}/daily-reward", null);
+        TestPlayer playerA = await TestHelper.RegisterNewPlayerAsync(_factory);
+        await TestHelper.SetGoldInDatabaseAsync(_factory, playerA.PlayerId, 500);
+        TestPlayer playerB = await TestHelper.RegisterNewPlayerAsync(_factory);
+        await playerB.Client.PostAsync("/api/players/me/daily-reward", null);
 
-        // Trước khi dựng lại: A không có trên bảng xếp hạng (đúng vấn đề bạn hỏi).
-        HttpResponseMessage beforeRebuild = await _client.GetAsync($"/api/leaderboard/players/{playerA}");
+        // Trước khi dựng lại: A không có trên bảng xếp hạng.
+        HttpResponseMessage beforeRebuild = await _client.GetAsync($"/api/leaderboard/players/{playerA.PlayerId}");
         Assert.Equal(HttpStatusCode.NotFound, beforeRebuild.StatusCode);
 
         HttpResponseMessage rebuild = await _client.PostAsync("/api/leaderboard/rebuild", null);
         Assert.Equal(HttpStatusCode.OK, rebuild.StatusCode);
 
         // Sau khi dựng lại: A có mặt với đúng 500 vàng, xếp trên B.
-        LeaderboardEntryResponse? rankA = await _client.GetFromJsonAsync<LeaderboardEntryResponse>($"/api/leaderboard/players/{playerA}");
-        LeaderboardEntryResponse? rankB = await _client.GetFromJsonAsync<LeaderboardEntryResponse>($"/api/leaderboard/players/{playerB}");
+        LeaderboardEntryResponse? rankA = await _client.GetFromJsonAsync<LeaderboardEntryResponse>($"/api/leaderboard/players/{playerA.PlayerId}");
+        LeaderboardEntryResponse? rankB = await _client.GetFromJsonAsync<LeaderboardEntryResponse>($"/api/leaderboard/players/{playerB.PlayerId}");
         Assert.Equal(500, rankA!.Gold);
         Assert.Equal(PlayersController.DailyRewardGold, rankB!.Gold);
         Assert.True(rankA.Rank < rankB.Rank);
@@ -51,20 +51,20 @@ public class LeaderboardRebuildApiTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task Rebuild_RestoresLeaderboardAfterRedisDataIsLost()
     {
-        Guid playerId = await TestHelper.RegisterNewPlayerAsync(_client);
-        await _client.PostAsync($"/api/players/{playerId}/daily-reward", null);
+        TestPlayer player = await TestHelper.RegisterNewPlayerAsync(_factory);
+        await player.Client.PostAsync("/api/players/me/daily-reward", null);
 
         // Giả lập Redis mất dữ liệu: DEL key bảng xếp hạng.
         IConnectionMultiplexer redis = _factory.Services.GetRequiredService<IConnectionMultiplexer>();
         await redis.GetDatabase().KeyDeleteAsync(_factory.LeaderboardKey);
-        HttpResponseMessage afterDelete = await _client.GetAsync($"/api/leaderboard/players/{playerId}");
+        HttpResponseMessage afterDelete = await _client.GetAsync($"/api/leaderboard/players/{player.PlayerId}");
         Assert.Equal(HttpStatusCode.NotFound, afterDelete.StatusCode);
 
         HttpResponseMessage rebuild = await _client.PostAsync("/api/leaderboard/rebuild", null);
         LeaderboardRebuildResponse? result = await rebuild.Content.ReadFromJsonAsync<LeaderboardRebuildResponse>();
 
         Assert.True(result!.PlayerCount >= 1);
-        LeaderboardEntryResponse? entry = await _client.GetFromJsonAsync<LeaderboardEntryResponse>($"/api/leaderboard/players/{playerId}");
+        LeaderboardEntryResponse? entry = await _client.GetFromJsonAsync<LeaderboardEntryResponse>($"/api/leaderboard/players/{player.PlayerId}");
         Assert.Equal(PlayersController.DailyRewardGold, entry!.Gold);
     }
 }

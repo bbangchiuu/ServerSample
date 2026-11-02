@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using System.Text;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
@@ -34,8 +33,7 @@ namespace ServerSampleApi.Auth
             _options = options.Value;
 
             // HS256 = HMAC-SHA256: dùng CÙNG một khoá để ký (lúc tạo token) và để kiểm tra (lúc nhận token).
-            var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.SigningKey));
-            _signingCredentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
+            _signingCredentials = new SigningCredentials(_options.CreateSigningKey(), SecurityAlgorithms.HmacSha256);
         }
 
         public AccessToken CreateAccessToken(AccountModel account)

@@ -1,10 +1,20 @@
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 using ServerSampleApi.Data;
 using ServerSampleApi.Dtos;
 
 namespace ServerSampleApi.Tests;
+
+/// <summary>
+/// Một người chơi vừa đăng ký trong test.
+/// Client đã gắn sẵn header "Authorization: Bearer &lt;token&gt;", gọi API nào cũng là gọi với tư cách người này.
+/// </summary>
+internal record TestPlayer(Guid PlayerId, HttpClient Client);
 
 /// <summary>Các hàm dùng chung cho mọi test.</summary>
 internal static class TestHelper
@@ -18,15 +28,42 @@ internal static class TestHelper
     /// </summary>
     public static string NewUsername() => "u_" + Guid.NewGuid().ToString("N")[..12];
 
-    /// <summary>Đăng ký một tài khoản mới và trả về playerId của nó.</summary>
-    public static async Task<Guid> RegisterNewPlayerAsync(HttpClient client)
+    /// <summary>
+    /// Đăng ký một tài khoản mới, rồi trả về playerId và một HttpClient MỚI đã gắn token của người đó.
+    /// Mỗi người chơi một client riêng, nên trong cùng một test có thể có nhiều người chơi khác nhau.
+    /// </summary>
+    public static async Task<TestPlayer> RegisterNewPlayerAsync(ApiFactory factory)
     {
+        HttpClient client = factory.CreateClient();
         HttpResponseMessage response = await client.PostAsJsonAsync("/api/accounts/register",
             new RegisterRequest { Username = NewUsername(), Password = Password });
         response.EnsureSuccessStatusCode(); // không thành công thì ném exception, test fail ngay tại đây
 
         AccountResponse? account = await response.Content.ReadFromJsonAsync<AccountResponse>();
-        return account!.PlayerId;
+
+        // Từ giờ mọi request của client này đều kèm: Authorization: Bearer eyJhbGciOi...
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", account!.AccessToken);
+        return new TestPlayer(account.PlayerId, client);
+    }
+
+    /// <summary>
+    /// Tự ký một token bất kỳ, để thử các trường hợp xấu: token hết hạn, token ký bằng khoá giả...
+    /// Mặc định dùng đúng khoá, issuer, audience của server test.
+    /// </summary>
+    public static string CreateToken(Guid playerId, DateTime expiresAt, string signingKey = ApiFactory.JwtSigningKey)
+    {
+        DateTime issuedAt = expiresAt.AddHours(-1);
+        return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = "ServerSampleApi",
+            Audience = "ServerSampleUnity",
+            IssuedAt = issuedAt,
+            NotBefore = issuedAt,
+            Expires = expiresAt,
+            Subject = new ClaimsIdentity(new[] { new Claim(JwtRegisteredClaimNames.Sub, playerId.ToString()) }),
+            SigningCredentials = new SigningCredentials(
+                new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(signingKey)), SecurityAlgorithms.HmacSha256),
+        });
     }
 
     /// <summary>

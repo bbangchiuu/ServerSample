@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ServerSampleApi.Auth;
 using ServerSampleApi.Data;
 using ServerSampleApi.Dtos;
 using ServerSampleApi.Models;
@@ -7,17 +9,16 @@ using ServerSampleApi.Models;
 namespace ServerSampleApi.Controllers
 {
     /// <summary>
-    /// API túi đồ của người chơi. Tách khỏi PlayersController để mỗi controller lo một việc.
+    /// API túi đồ của người chơi đang đăng nhập. Tách khỏi PlayersController để mỗi controller lo một việc.
     ///
-    /// ⚠ CHƯA ĐƯỢC BẢO VỆ (giống PlayersController): giai đoạn 4 (JWT) sẽ sửa.
+    /// [Authorize] + playerId lấy từ token (giống PlayersController): chỉ xem và dùng được đồ của chính mình.
     ///
     /// Không có API nào cho client tự THÊM vật phẩm: vật phẩm chỉ đến từ những hành động
     /// server kiểm soát (nhận thưởng hằng ngày, sau này là mua trong shop...).
     /// </summary>
     [ApiController]
-    // Route đặt ở cấp controller có cả tham số: mọi API trong đây đều bắt đầu bằng
-    // /api/players/{playerId}/inventory, và hàm nào cũng nhận được playerId.
-    [Route("api/players/{playerId:guid}/inventory")]
+    [Authorize]
+    [Route("api/players/me/inventory")]
     public class InventoryController : ControllerBase
     {
         private readonly GameDbContext _db;
@@ -27,12 +28,15 @@ namespace ServerSampleApi.Controllers
             _db = db;
         }
 
-        // GET /api/players/{playerId}/inventory
+        // GET /api/players/me/inventory
         [HttpGet]
         [ProducesResponseType(typeof(InventoryResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<ActionResult<InventoryResponse>> GetInventory(Guid playerId)
+        public async Task<ActionResult<InventoryResponse>> GetInventory()
         {
+            Guid playerId = User.GetPlayerId();
+
             // AnyAsync: chỉ hỏi "có tồn tại không", không đọc cả dòng. SQL: SELECT EXISTS (...)
             if (!await _db.Players.AnyAsync(p => p.Id == playerId))
             {
@@ -42,14 +46,17 @@ namespace ServerSampleApi.Controllers
             return Ok(await LoadInventoryAsync(playerId));
         }
 
-        // POST /api/players/{playerId}/inventory/{itemId}/use
+        // POST /api/players/me/inventory/{itemId}/use
         // POST vì đây là một hành động: mỗi lần gọi tiêu hao 1 vật phẩm, gọi 2 lần là mất 2 cái.
         [HttpPost("{itemId}/use")]
         [ProducesResponseType(typeof(InventoryResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
-        public async Task<ActionResult<InventoryResponse>> UseItem(Guid playerId, string itemId)
+        public async Task<ActionResult<InventoryResponse>> UseItem(string itemId)
         {
+            Guid playerId = User.GetPlayerId();
+
             // Mã vật phẩm luôn lưu chữ thường, nên "Potion" và "POTION" đều là "potion".
             itemId = itemId.ToLowerInvariant();
 

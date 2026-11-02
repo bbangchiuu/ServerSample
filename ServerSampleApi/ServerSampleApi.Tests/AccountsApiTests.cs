@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -41,9 +42,12 @@ public class AccountsApiTests : IClassFixture<ApiFactory>
         AccountResponse? account = await response.Content.ReadFromJsonAsync<AccountResponse>();
         Assert.Equal(username, account!.Username);
 
-        // Header Location phải dẫn tới đúng profile vừa tạo.
+        // Header Location phải dẫn tới đúng profile vừa tạo (/api/players/me),
+        // gọi kèm token vừa nhận được khi đăng ký.
         Assert.NotNull(response.Headers.Location);
-        HttpResponseMessage profileResponse = await _client.GetAsync(response.Headers.Location);
+        using var profileRequest = new HttpRequestMessage(HttpMethod.Get, response.Headers.Location);
+        profileRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.AccessToken);
+        HttpResponseMessage profileResponse = await _client.SendAsync(profileRequest);
         Assert.Equal(HttpStatusCode.OK, profileResponse.StatusCode);
         PlayerProfileResponse? profile = await profileResponse.Content.ReadFromJsonAsync<PlayerProfileResponse>();
         Assert.Equal(account.PlayerId, profile!.Id);

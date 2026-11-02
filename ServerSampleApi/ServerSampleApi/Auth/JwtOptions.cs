@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text;
+using Microsoft.IdentityModel.Tokens;
 
 namespace ServerSampleApi.Auth
 {
@@ -31,5 +33,11 @@ namespace ServerSampleApi.Auth
         /// <summary>Token hết hạn sau bao nhiêu phút. Hết hạn thì phải đăng nhập lại.</summary>
         [Range(1, 24 * 60)]
         public int AccessTokenMinutes { get; set; } = 60;
+
+        /// <summary>
+        /// Khoá dùng cho HS256. Dùng CHUNG ở 2 nơi: TokenService (ký token) và JwtBearer trong Program.cs
+        /// (kiểm tra token), nên viết một chỗ để hai bên chắc chắn giống nhau.
+        /// </summary>
+        public SymmetricSecurityKey CreateSigningKey() => new(Encoding.UTF8.GetBytes(SigningKey));
     }
 }

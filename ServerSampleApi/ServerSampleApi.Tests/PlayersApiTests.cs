@@ -9,42 +9,33 @@ namespace ServerSampleApi.Tests;
 public class PlayersApiTests : IClassFixture<ApiFactory>
 {
     private readonly ApiFactory _factory;
-    private readonly HttpClient _client;
 
     public PlayersApiTests(ApiFactory factory)
     {
         _factory = factory;
-        _client = factory.CreateClient();
     }
 
     [Fact]
     public async Task NewPlayer_HasDefaultProfile()
     {
-        Guid playerId = await TestHelper.RegisterNewPlayerAsync(_client);
+        TestPlayer player = await TestHelper.RegisterNewPlayerAsync(_factory);
 
-        PlayerProfileResponse? profile = await _client.GetFromJsonAsync<PlayerProfileResponse>($"/api/players/{playerId}");
+        PlayerProfileResponse? profile = await player.Client.GetFromJsonAsync<PlayerProfileResponse>("/api/players/me");
 
-        Assert.Equal(1, profile!.Level);
+        Assert.Equal(player.PlayerId, profile!.Id);
+        Assert.Equal(1, profile.Level);
         Assert.Equal(0, profile.Gold);
         Assert.Null(profile.LastDailyRewardDate);
     }
 
     [Fact]
-    public async Task UnknownPlayer_ReturnsNotFound()
-    {
-        HttpResponseMessage response = await _client.GetAsync($"/api/players/{Guid.NewGuid()}");
-
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-    }
-
-    [Fact]
     public async Task ChangeDisplayName_TrimsSpaces_AndIsSaved()
     {
-        Guid playerId = await TestHelper.RegisterNewPlayerAsync(_client);
+        TestPlayer player = await TestHelper.RegisterNewPlayerAsync(_factory);
 
-        HttpResponseMessage response = await _client.PutAsJsonAsync($"/api/players/{playerId}/display-name",
+        HttpResponseMessage response = await player.Client.PutAsJsonAsync("/api/players/me/display-name",
             new ChangeDisplayNameRequest { DisplayName = "  Hiep Si  " });
-        PlayerProfileResponse? profile = await _client.GetFromJsonAsync<PlayerProfileResponse>($"/api/players/{playerId}");
+        PlayerProfileResponse? profile = await player.Client.GetFromJsonAsync<PlayerProfileResponse>("/api/players/me");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("Hiep Si", profile!.DisplayName);
@@ -53,10 +44,10 @@ public class PlayersApiTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task ChangeDisplayName_TooShortAfterTrimming_ReturnsBadRequest()
     {
-        Guid playerId = await TestHelper.RegisterNewPlayerAsync(_client);
+        TestPlayer player = await TestHelper.RegisterNewPlayerAsync(_factory);
 
         // 8 ký tự nên qua được [StringLength], nhưng bỏ khoảng trắng chỉ còn "ab".
-        HttpResponseMessage response = await _client.PutAsJsonAsync($"/api/players/{playerId}/display-name",
+        HttpResponseMessage response = await player.Client.PutAsJsonAsync("/api/players/me/display-name",
             new ChangeDisplayNameRequest { DisplayName = "   ab   " });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -65,14 +56,14 @@ public class PlayersApiTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task DailyReward_CanBeClaimedOnlyOncePerDay()
     {
-        Guid playerId = await TestHelper.RegisterNewPlayerAsync(_client);
+        TestPlayer player = await TestHelper.RegisterNewPlayerAsync(_factory);
 
-        HttpResponseMessage first = await _client.PostAsync($"/api/players/{playerId}/daily-reward", null);
-        HttpResponseMessage second = await _client.PostAsync($"/api/players/{playerId}/daily-reward", null);
+        HttpResponseMessage first = await player.Client.PostAsync("/api/players/me/daily-reward", null);
+        HttpResponseMessage second = await player.Client.PostAsync("/api/players/me/daily-reward", null);
 
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
-        PlayerProfileResponse? profile = await _client.GetFromJsonAsync<PlayerProfileResponse>($"/api/players/{playerId}");
+        PlayerProfileResponse? profile = await player.Client.GetFromJsonAsync<PlayerProfileResponse>("/api/players/me");
         Assert.Equal(PlayersController.DailyRewardGold, profile!.Gold);
     }
 
@@ -81,11 +72,11 @@ public class PlayersApiTests : IClassFixture<ApiFactory>
     {
         // Giả lập người chơi gian lận: bắn 20 request "nhận thưởng" cùng một lúc.
         // Thử bằng tay rất khó làm được; test thì làm được, và lần nào chạy cũng kiểm tra lại.
-        Guid playerId = await TestHelper.RegisterNewPlayerAsync(_client);
+        TestPlayer player = await TestHelper.RegisterNewPlayerAsync(_factory);
 
         // Tạo 20 Task cùng chạy, rồi chờ tất cả xong.
         Task<HttpResponseMessage>[] requests = Enumerable.Range(0, 20)
-            .Select(_ => _client.PostAsync($"/api/players/{playerId}/daily-reward", null))
+            .Select(_ => player.Client.PostAsync("/api/players/me/daily-reward", null))
             .ToArray();
         HttpResponseMessage[] responses = await Task.WhenAll(requests);
 
@@ -93,7 +84,7 @@ public class PlayersApiTests : IClassFixture<ApiFactory>
         // và chỉ được cộng vàng 1 lần.
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
         Assert.Equal(19, responses.Count(response => response.StatusCode == HttpStatusCode.Conflict));
-        PlayerProfileResponse? profile = await _client.GetFromJsonAsync<PlayerProfileResponse>($"/api/players/{playerId}");
+        PlayerProfileResponse? profile = await player.Client.GetFromJsonAsync<PlayerProfileResponse>("/api/players/me");
         Assert.Equal(PlayersController.DailyRewardGold, profile!.Gold);
     }
 
@@ -102,19 +93,19 @@ public class PlayersApiTests : IClassFixture<ApiFactory>
     {
         // Ngày thứ hai khác ngày đầu: dòng potion ĐÃ CÓ trong túi, nên không còn khoá chính nào
         // "vô tình" chặn hộ. Đây là chỗ bước 3 để lọt lỗi: cả 20 request đều báo thành công.
-        Guid playerId = await TestHelper.RegisterNewPlayerAsync(_client);
-        await _client.PostAsync($"/api/players/{playerId}/daily-reward", null); // ngày 1: 100 vàng, 1 potion
+        TestPlayer player = await TestHelper.RegisterNewPlayerAsync(_factory);
+        await player.Client.PostAsync("/api/players/me/daily-reward", null); // ngày 1: 100 vàng, 1 potion
 
-        await TestHelper.SetLastDailyRewardToYesterdayAsync(_factory, playerId);
+        await TestHelper.SetLastDailyRewardToYesterdayAsync(_factory, player.PlayerId);
 
         HttpResponseMessage[] responses = await Task.WhenAll(Enumerable.Range(0, 20)
-            .Select(_ => _client.PostAsync($"/api/players/{playerId}/daily-reward", null)));
+            .Select(_ => player.Client.PostAsync("/api/players/me/daily-reward", null)));
 
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
         Assert.Equal(19, responses.Count(response => response.StatusCode == HttpStatusCode.Conflict));
-        PlayerProfileResponse? profile = await _client.GetFromJsonAsync<PlayerProfileResponse>($"/api/players/{playerId}");
+        PlayerProfileResponse? profile = await player.Client.GetFromJsonAsync<PlayerProfileResponse>("/api/players/me");
         Assert.Equal(2 * PlayersController.DailyRewardGold, profile!.Gold); // đúng 2 lần thưởng: 200 vàng
-        InventoryResponse? inventory = await _client.GetFromJsonAsync<InventoryResponse>($"/api/players/{playerId}/inventory");
-        Assert.Equal(2, Assert.Single(inventory!.Items).Quantity);           // đúng 2 potion
+        InventoryResponse? inventory = await player.Client.GetFromJsonAsync<InventoryResponse>("/api/players/me/inventory");
+        Assert.Equal(2, Assert.Single(inventory!.Items).Quantity);              // đúng 2 potion
     }
 }

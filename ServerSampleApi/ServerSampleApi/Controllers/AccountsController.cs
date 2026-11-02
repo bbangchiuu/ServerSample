@@ -74,13 +74,13 @@ namespace ServerSampleApi.Controllers
             // Đăng ký xong là đăng nhập luôn: trả token ngay, client không phải gọi login thêm lần nữa.
             AccountResponse response = ToAccountResponse(account);
 
-            // 201 Created: đã tạo tài nguyên mới. Header "Location" chỉ tới profile người chơi.
-            // CreatedAtAction tự sinh đường dẫn từ route thật của PlayersController.GetProfile,
+            // 201 Created: đã tạo tài nguyên mới. Header "Location" chỉ tới profile người chơi (/api/players/me).
+            // CreatedAtAction tự sinh đường dẫn từ route thật của PlayersController.GetMyProfile,
             // nên sau này đổi route bên đó thì Location ở đây cũng tự đúng theo.
             return CreatedAtAction(
-                nameof(PlayersController.GetProfile),
+                nameof(PlayersController.GetMyProfile),
                 "Players",
-                new { playerId = account.Id },
+                routeValues: null,
                 response);
         }
 

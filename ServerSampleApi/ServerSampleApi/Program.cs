@@ -1,5 +1,10 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
 using ServerSampleApi.Auth;
 using ServerSampleApi.Data;
 using ServerSampleApi.Models;
@@ -25,6 +30,46 @@ builder.Services.AddOptions<JwtOptions>()
     .ValidateOnStart();
 builder.Services.AddSingleton<TokenService>();
 
+// Authentication (xác thực: "bạn là ai?"): mỗi request, đọc header "Authorization: Bearer <token>" và kiểm tra token.
+// Token hợp lệ thì HttpContext.User (trong controller là "User") chứa các claim trong token: sub, unique_name...
+// Không có token hoặc token sai thì User là "khách" (chưa đăng nhập).
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer();
+
+// Cấu hình cách kiểm tra token. Viết bằng Options pattern để lấy JwtOptions LÚC CHẠY
+// (test ghi đè Jwt:SigningKey thì phần kiểm tra cũng dùng đúng khoá của test).
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IOptions<JwtOptions>>((bearerOptions, jwtOptions) =>
+    {
+        JwtOptions jwt = jwtOptions.Value;
+
+        // Giữ nguyên tên claim như trong token ("sub", "unique_name"). Mặc định thư viện đổi "sub" thành một tên
+        // dài kiểu "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier" vì lý do lịch sử.
+        bearerOptions.MapInboundClaims = false;
+
+        bearerOptions.TokenValidationParameters = new TokenValidationParameters
+        {
+            // Token phải do CHÍNH server này phát hành (iss), cho ĐÚNG client game (aud),
+            // và ký bằng ĐÚNG khoá bí mật. Sai một trong ba là từ chối.
+            ValidIssuer = jwt.Issuer,
+            ValidAudience = jwt.Audience,
+            IssuerSigningKey = jwt.CreateSigningKey(),
+
+            // Chỉ chấp nhận đúng thuật toán mình dùng để ký. Không để kẻ xấu gửi token "alg":"none" (không chữ ký).
+            ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256 },
+
+            // Đồng hồ các máy có thể lệch nhau vài giây, nên cho phép trễ hạn một chút.
+            // Mặc định là 5 phút: token hết hạn rồi vẫn dùng thêm được 5 phút, quá dài.
+            ClockSkew = TimeSpan.FromSeconds(30),
+
+            // User.Identity.Name sẽ lấy từ claim "unique_name" (tên tài khoản).
+            NameClaimType = JwtRegisteredClaimNames.UniqueName,
+        };
+    });
+
+// Authorization (phân quyền: "bạn được làm gì?"): các API có [Authorize] chỉ cho người đã đăng nhập gọi.
+builder.Services.AddAuthorization();
+
 // Database PostgreSQL qua EF Core. Chuỗi kết nối "GameDb" nằm trong appsettings.Development.json.
 // AddDbContext đăng ký kiểu Scoped: MỖI REQUEST một GameDbContext riêng, xong request thì bỏ đi.
 builder.Services.AddDbContext<GameDbContext>(options =>
@@ -42,7 +87,25 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 builder.Services.AddScoped<LeaderboardService>();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+// Thêm kiểu xác thực "Bearer" vào tài liệu OpenAPI, để Swagger UI hiện nút "Authorize" cho dán token vào.
+builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document, context, cancellationToken) =>
+{
+    document.Components ??= new OpenApiComponents();
+    document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
+    document.Components.SecuritySchemes["Bearer"] = new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        Description = "Dán accessToken lấy từ /api/accounts/login (không cần gõ chữ Bearer).",
+    };
+    document.Security ??= new List<OpenApiSecurityRequirement>();
+    document.Security.Add(new OpenApiSecurityRequirement
+    {
+        [new OpenApiSecuritySchemeReference("Bearer", document)] = new List<string>(),
+    });
+    return Task.CompletedTask;
+}));
 
 var app = builder.Build();
 
@@ -65,6 +128,8 @@ if (app.Configuration.GetValue("Leaderboard:RebuildOnStartup", defaultValue: tru
 
 app.UseHttpsRedirection();
 
+// Thứ tự quan trọng: phải biết "bạn là ai" (Authentication) rồi mới xét "bạn được làm gì" (Authorization).
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();

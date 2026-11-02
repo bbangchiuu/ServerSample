@@ -5,7 +5,10 @@ using ServerSampleApi.Dtos;
 
 namespace ServerSampleApi.Tests;
 
-/// <summary>Test API bảng xếp hạng (LeaderboardController). Cần Redis đang chạy.</summary>
+/// <summary>
+/// Test API bảng xếp hạng (LeaderboardController). Cần Redis đang chạy.
+/// Xem bảng xếp hạng KHÔNG cần đăng nhập, nên dùng _client không có token; còn nhận thưởng thì cần token.
+/// </summary>
 public class LeaderboardApiTests : IClassFixture<ApiFactory>
 {
     private readonly ApiFactory _factory;
@@ -21,15 +24,15 @@ public class LeaderboardApiTests : IClassFixture<ApiFactory>
     public async Task DailyReward_PutsPlayersOnLeaderboard_SortedByGold()
     {
         // Chuẩn bị: "giau" nhận thưởng 2 ngày (200 vàng), "ngheo" nhận 1 ngày (100 vàng).
-        Guid poorPlayerId = await TestHelper.RegisterNewPlayerAsync(_client);
-        Guid richPlayerId = await TestHelper.RegisterNewPlayerAsync(_client);
-        await _client.PutAsJsonAsync($"/api/players/{richPlayerId}/display-name",
+        TestPlayer poor = await TestHelper.RegisterNewPlayerAsync(_factory);
+        TestPlayer rich = await TestHelper.RegisterNewPlayerAsync(_factory);
+        await rich.Client.PutAsJsonAsync("/api/players/me/display-name",
             new ChangeDisplayNameRequest { DisplayName = "Dai Gia" });
 
-        await _client.PostAsync($"/api/players/{poorPlayerId}/daily-reward", null);
-        await _client.PostAsync($"/api/players/{richPlayerId}/daily-reward", null);
-        await TestHelper.SetLastDailyRewardToYesterdayAsync(_factory, richPlayerId);
-        await _client.PostAsync($"/api/players/{richPlayerId}/daily-reward", null);
+        await poor.Client.PostAsync("/api/players/me/daily-reward", null);
+        await rich.Client.PostAsync("/api/players/me/daily-reward", null);
+        await TestHelper.SetLastDailyRewardToYesterdayAsync(_factory, rich.PlayerId);
+        await rich.Client.PostAsync("/api/players/me/daily-reward", null);
 
         // Hành động
         LeaderboardResponse? leaderboard = await _client.GetFromJsonAsync<LeaderboardResponse>("/api/leaderboard?count=10");
@@ -39,18 +42,18 @@ public class LeaderboardApiTests : IClassFixture<ApiFactory>
 
         LeaderboardEntryResponse first = leaderboard.Entries[0];
         Assert.Equal(1, first.Rank);
-        Assert.Equal(richPlayerId, first.PlayerId);
+        Assert.Equal(rich.PlayerId, first.PlayerId);
         Assert.Equal("Dai Gia", first.DisplayName);
         Assert.Equal(2 * PlayersController.DailyRewardGold, first.Gold);
 
         LeaderboardEntryResponse second = leaderboard.Entries[1];
         Assert.Equal(2, second.Rank);
-        Assert.Equal(poorPlayerId, second.PlayerId);
+        Assert.Equal(poor.PlayerId, second.PlayerId);
         Assert.Equal(PlayersController.DailyRewardGold, second.Gold);
 
         // Hỏi riêng hạng của người nghèo cũng phải ra hạng 2.
         LeaderboardEntryResponse? poorRank = await _client.GetFromJsonAsync<LeaderboardEntryResponse>(
-            $"/api/leaderboard/players/{poorPlayerId}");
+            $"/api/leaderboard/players/{poor.PlayerId}");
         Assert.Equal(2, poorRank!.Rank);
     }
 
@@ -58,9 +61,9 @@ public class LeaderboardApiTests : IClassFixture<ApiFactory>
     public async Task PlayerNotOnLeaderboard_ReturnsNotFound()
     {
         // Mới đăng ký, chưa nhận vàng lần nào nên chưa có trên bảng.
-        Guid playerId = await TestHelper.RegisterNewPlayerAsync(_client);
+        TestPlayer player = await TestHelper.RegisterNewPlayerAsync(_factory);
 
-        HttpResponseMessage response = await _client.GetAsync($"/api/leaderboard/players/{playerId}");
+        HttpResponseMessage response = await _client.GetAsync($"/api/leaderboard/players/{player.PlayerId}");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
