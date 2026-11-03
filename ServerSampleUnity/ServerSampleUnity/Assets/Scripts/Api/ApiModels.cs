@@ -22,6 +22,12 @@ public class AccountResponse
 {
     public string playerId;
     public string username;
+
+    /// <summary>JWT. ApiClient tự giữ lại và gửi kèm các API cần đăng nhập, bạn không cần tự xử lý.</summary>
+    public string accessToken;
+
+    /// <summary>Thời điểm token hết hạn (UTC), ví dụ "2026-11-03T10:00:00Z". Đọc dạng string vì JsonUtility không đọc được DateTime.</summary>
+    public string accessTokenExpiresAt;
 }
 
 [Serializable]

@@ -67,8 +67,19 @@ public class ApiTestController : MonoBehaviour
 
     private void OnLoggedIn(AccountResponse account)
     {
+        // Token đã được ApiClient giữ lại. _playerId chỉ để hiển thị, không gửi lên server nữa.
         _playerId = account.playerId;
+        AddLog($"Token expires at {account.accessTokenExpiresAt} (UTC)");
         RefreshAll();
+    }
+
+    private void Logout()
+    {
+        _api.Logout();
+        _playerId = "";
+        _profile = null;
+        _inventory = null;
+        AddLog("Logged out");
     }
 
     private void Refresh()
@@ -83,11 +94,11 @@ public class ApiTestController : MonoBehaviour
     private void RefreshAll()
     {
         _busy = true;
-        _api.GetProfile(_playerId,
+        _api.GetProfile(
             profile =>
             {
                 _profile = profile;
-                _api.GetInventory(_playerId,
+                _api.GetInventory(
                     inventory =>
                     {
                         _inventory = inventory;
@@ -102,13 +113,13 @@ public class ApiTestController : MonoBehaviour
     private void ClaimDailyReward()
     {
         _busy = true;
-        _api.ClaimDailyReward(_playerId,
+        _api.ClaimDailyReward(
             profile =>
             {
                 LogOk("Daily reward", profile);
                 _profile = profile;
                 // Phần thưởng có thêm vật phẩm, nên tải lại túi đồ.
-                _api.GetInventory(_playerId,
+                _api.GetInventory(
                     inventory =>
                     {
                         _inventory = inventory;
@@ -122,7 +133,7 @@ public class ApiTestController : MonoBehaviour
     private void UseItem(string itemId)
     {
         _busy = true;
-        _api.UseItem(_playerId, itemId,
+        _api.UseItem(itemId,
             inventory =>
             {
                 LogOk($"Use {itemId}", inventory);
@@ -135,7 +146,7 @@ public class ApiTestController : MonoBehaviour
     private void ChangeDisplayName()
     {
         _busy = true;
-        _api.ChangeDisplayName(_playerId, _newDisplayName,
+        _api.ChangeDisplayName(_newDisplayName,
             profile =>
             {
                 LogOk("Change name", profile);
@@ -164,6 +175,12 @@ public class ApiTestController : MonoBehaviour
                 : $"{actionName}: error {error.StatusCode}: {error.Message}");
             if (error.StatusCode == 400)
                 AddLog($"   {error.RawBody}"); // lỗi validation: xem chi tiết từng trường
+            if (error.StatusCode == 401 && !_api.IsLoggedIn && _playerId != "")
+            {
+                // Token hết hạn giữa chừng: ApiClient đã bỏ token, quay về màn hình đăng nhập.
+                AddLog($"   {error.RawBody}"); // lý do server trả về, ví dụ: The token expired at ...
+                Logout();
+            }
             _busy = false;
         };
     }
@@ -206,6 +223,7 @@ public class ApiTestController : MonoBehaviour
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Refresh")) Refresh();
             if (GUILayout.Button("Claim daily reward")) ClaimDailyReward();
+            if (GUILayout.Button("Logout")) Logout();
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
@@ -242,7 +260,10 @@ public class ApiTestController : MonoBehaviour
     }
 
 
+    // Mỗi tài khoản thử một ApiClient riêng, vì mỗi ApiClient giữ token của đúng MỘT người chơi.
     public List<string> listUser = new();
+    private readonly List<ApiClient> _testClients = new();
+
     private void Update()
     {
         if (Input.GetKeyDown(KeyCode.Space))
@@ -250,27 +271,32 @@ public class ApiTestController : MonoBehaviour
             for(int i = 0; i < 20; i++)
             {
                 var data = new AccountRequest { username = $"bang{i}", password = _password };
-                _api.Register(data.username, data.password,
-                    account =>
+                var client = new ApiClient(baseUrl);
+                client.Register(data.username, data.password,
+                    account => OnTestUserReady(client, account, "Register"),
+                    error =>
                     {
-                        listUser.Add(account.playerId);
-                        AddLog($"[Space] Register {account.username} OK");
-                    },
-                    error => AddLog($"[Space] Register {data.username}: error {error.StatusCode}: {error.Message}"));
+                        // 409: tài khoản đã có từ lần chạy trước, đăng nhập lại để lấy token mới.
+                        if (error.StatusCode == 409)
+                            client.Login(data.username, data.password,
+                                account => OnTestUserReady(client, account, "Login"),
+                                loginError => AddLog($"[Space] Login {data.username}: error {loginError.StatusCode}: {loginError.Message}"));
+                        else
+                            AddLog($"[Space] Register {data.username}: error {error.StatusCode}: {error.Message}");
+                    });
             }
         }
         else if (Input.GetKeyDown(KeyCode.A))
         {
-            for (int i = 0; i < listUser.Count; i++)
+            foreach (ApiClient client in _testClients)
             {
-                var data = listUser[i];
-                _api.ClaimDailyReward(data, onSuccess =>
+                client.ClaimDailyReward(onSuccess =>
                 {
-                    AddLog($"[Space] {onSuccess.displayName} Claim Daily Reward  OK");
+                    AddLog($"[A] {onSuccess.displayName} Claim Daily Reward  OK");
                 },
                 error =>
                 {
-                    AddLog($"[Space] {data}: error {error.StatusCode}: {error.Message}");
+                    AddLog($"[A] error {error.StatusCode}: {error.Message}");
                 });
             }
         }
@@ -281,5 +307,12 @@ public class ApiTestController : MonoBehaviour
                 ClaimDailyReward();
             }
         }
+    }
+
+    private void OnTestUserReady(ApiClient client, AccountResponse account, string actionName)
+    {
+        _testClients.Add(client);
+        listUser.Add(account.playerId);
+        AddLog($"[Space] {actionName} {account.username} OK");
     }
 }

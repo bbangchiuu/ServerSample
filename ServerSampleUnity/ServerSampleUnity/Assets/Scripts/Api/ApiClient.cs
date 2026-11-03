@@ -36,6 +36,11 @@ public class ApiError
 /// Phải gọi từ MAIN THREAD (ví dụ từ MonoBehaviour): UnityWebRequest chỉ dùng được trên main thread.
 /// Các callback cũng được gọi trên main thread, nên cập nhật giao diện trong callback là an toàn.
 /// Bỏ trống onError thì lỗi được ghi ra Console bằng Debug.LogWarning, không bị im lặng.
+///
+/// Đăng nhập: Register/Login thành công thì ApiClient TỰ GIỮ token (JWT) và tự gửi kèm
+/// "Authorization: Bearer &lt;token&gt;" cho các API của người chơi. Server lấy playerId từ token,
+/// nên các hàm bên dưới không cần (và không nhận) playerId nữa.
+/// Mỗi ApiClient giữ token của MỘT người chơi. Muốn thử nhiều người chơi cùng lúc thì tạo nhiều ApiClient.
 /// </summary>
 public class ApiClient
 {
@@ -46,50 +51,89 @@ public class ApiClient
         _baseUrl = baseUrl.TrimEnd('/');
     }
 
-    // ===== Tài khoản =====
+    /// <summary>
+    /// JWT của người chơi đang đăng nhập, null nếu chưa đăng nhập.
+    /// Chỉ giữ trong RAM: tắt game là mất, mở lại phải đăng nhập lại.
+    /// </summary>
+    public string? AccessToken { get; private set; }
+
+    public bool IsLoggedIn => AccessToken != null;
+
+    /// <summary>Quên token. Server không lưu token nên không cần báo cho server (bước 5 sẽ làm đăng xuất thật).</summary>
+    public void Logout()
+    {
+        AccessToken = null;
+    }
+
+    // ===== Tài khoản (không cần đăng nhập) =====
 
     public void Register(string username, string password, Action<AccountResponse> onSuccess, Action<ApiError>? onError = null) =>
-        Send("POST", "/api/accounts/register", new AccountRequest { username = username, password = password }, onSuccess, onError);
+        Send<AccountResponse>("POST", "/api/accounts/register", new AccountRequest { username = username, password = password },
+            requiresLogin: false, account => OnLoggedIn(account, onSuccess), onError);
 
     public void Login(string username, string password, Action<AccountResponse> onSuccess, Action<ApiError>? onError = null) =>
-        Send("POST", "/api/accounts/login", new AccountRequest { username = username, password = password }, onSuccess, onError);
+        Send<AccountResponse>("POST", "/api/accounts/login", new AccountRequest { username = username, password = password },
+            requiresLogin: false, account => OnLoggedIn(account, onSuccess), onError);
 
-    // ===== Người chơi =====
+    /// <summary>Giữ token lại TRƯỚC khi báo cho người gọi, để trong onSuccess gọi ngay API cần đăng nhập là được.</summary>
+    private void OnLoggedIn(AccountResponse account, Action<AccountResponse> onSuccess)
+    {
+        AccessToken = account.accessToken;
+        onSuccess(account);
+    }
 
-    public void GetProfile(string playerId, Action<PlayerProfile> onSuccess, Action<ApiError>? onError = null) =>
-        Send("GET", $"/api/players/{playerId}", null, onSuccess, onError);
+    // ===== Người chơi đang đăng nhập (/api/players/me) =====
 
-    public void ChangeDisplayName(string playerId, string displayName, Action<PlayerProfile> onSuccess, Action<ApiError>? onError = null) =>
-        Send("PUT", $"/api/players/{playerId}/display-name", new ChangeDisplayNameRequest { displayName = displayName }, onSuccess, onError);
+    public void GetProfile(Action<PlayerProfile> onSuccess, Action<ApiError>? onError = null) =>
+        Send("GET", "/api/players/me", null, requiresLogin: true, onSuccess, onError);
 
-    public void ClaimDailyReward(string playerId, Action<PlayerProfile> onSuccess, Action<ApiError>? onError = null) =>
-        Send("POST", $"/api/players/{playerId}/daily-reward", null, onSuccess, onError);
+    public void ChangeDisplayName(string displayName, Action<PlayerProfile> onSuccess, Action<ApiError>? onError = null) =>
+        Send("PUT", "/api/players/me/display-name", new ChangeDisplayNameRequest { displayName = displayName },
+            requiresLogin: true, onSuccess, onError);
 
-    // ===== Túi đồ =====
+    public void ClaimDailyReward(Action<PlayerProfile> onSuccess, Action<ApiError>? onError = null) =>
+        Send("POST", "/api/players/me/daily-reward", null, requiresLogin: true, onSuccess, onError);
 
-    public void GetInventory(string playerId, Action<InventoryResponse> onSuccess, Action<ApiError>? onError = null) =>
-        Send("GET", $"/api/players/{playerId}/inventory", null, onSuccess, onError);
+    // ===== Túi đồ của người chơi đang đăng nhập =====
 
-    public void UseItem(string playerId, string itemId, Action<InventoryResponse> onSuccess, Action<ApiError>? onError = null) =>
+    public void GetInventory(Action<InventoryResponse> onSuccess, Action<ApiError>? onError = null) =>
+        Send("GET", "/api/players/me/inventory", null, requiresLogin: true, onSuccess, onError);
+
+    public void UseItem(string itemId, Action<InventoryResponse> onSuccess, Action<ApiError>? onError = null) =>
         // EscapeURL: mã hoá ký tự đặc biệt (dấu cách, /, ?...) để không làm hỏng đường dẫn.
-        Send("POST", $"/api/players/{playerId}/inventory/{UnityWebRequest.EscapeURL(itemId)}/use", null, onSuccess, onError);
+        Send("POST", $"/api/players/me/inventory/{UnityWebRequest.EscapeURL(itemId)}/use", null,
+            requiresLogin: true, onSuccess, onError);
 
     // ===== Phần dùng chung =====
 
     /// <summary>
     /// Gửi một request, đợi kết quả, rồi gọi onSuccess (kèm JSON đã chuyển thành object kiểu T) hoặc onError.
     /// async void: hàm chạy "ở nền", người gọi không cần chờ; kết quả được báo qua callback.
+    /// requiresLogin: API cần token. Chưa đăng nhập thì báo lỗi 401 luôn, không gửi request vô ích lên server.
     /// </summary>
-    private async void Send<T>(string method, string path, object? body, Action<T> onSuccess, Action<ApiError>? onError)
+    private async void Send<T>(string method, string path, object? body, bool requiresLogin,
+        Action<T> onSuccess, Action<ApiError>? onError)
     {
         T data = default!;
         ApiError? error = null;
+
+        if (requiresLogin && AccessToken == null)
+        {
+            Report(new ApiError(401, "Not logged in.", ""));
+            return;
+        }
 
         using (var request = new UnityWebRequest(_baseUrl + path, method))
         {
             request.downloadHandler = new DownloadHandlerBuffer();
             request.SetRequestHeader("Accept", "application/json");
             request.timeout = 10; // giây: server không trả lời thì bỏ cuộc, không treo mãi
+
+            if (requiresLogin)
+            {
+                // Header chuẩn để gửi JWT: chữ "Bearer", một dấu cách, rồi tới token.
+                request.SetRequestHeader("Authorization", "Bearer " + AccessToken);
+            }
 
             if (body != null)
             {
@@ -115,7 +159,18 @@ public class ApiClient
                     break;
 
                 case UnityWebRequest.Result.ProtocolError: // server có trả lời, nhưng là lỗi 4xx/5xx
-                    error = new ApiError(request.responseCode, ReadProblemMessage(text, request.error), text);
+                    if (request.responseCode == 401 && requiresLogin)
+                    {
+                        // Token hết hạn hoặc không hợp lệ: bỏ token đi, người chơi phải đăng nhập lại.
+                        // Lý do cụ thể nằm trong header WWW-Authenticate, ví dụ: The token expired at ...
+                        AccessToken = null;
+                        error = new ApiError(401, "Session expired. Please log in again.",
+                            request.GetResponseHeader("WWW-Authenticate") ?? "");
+                    }
+                    else
+                    {
+                        error = new ApiError(request.responseCode, ReadProblemMessage(text, request.error), text);
+                    }
                     break;
 
                 default: // không tới được server: chưa bật server, sai cổng, sai giao thức, hết thời gian chờ...
@@ -130,13 +185,21 @@ public class ApiClient
         {
             onSuccess(data);
         }
-        else if (onError != null)
-        {
-            onError(error);
-        }
         else
         {
-            Debug.LogWarning($"[ApiClient] {method} {path} failed ({error.StatusCode}): {error.Message}");
+            Report(error);
+        }
+
+        void Report(ApiError apiError)
+        {
+            if (onError != null)
+            {
+                onError(apiError);
+            }
+            else
+            {
+                Debug.LogWarning($"[ApiClient] {method} {path} failed ({apiError.StatusCode}): {apiError.Message}");
+            }
         }
     }
 
