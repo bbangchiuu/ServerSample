@@ -26,19 +26,13 @@ namespace ServerSampleApi.Services
 
         private readonly IDatabase _redis;
         private readonly GameDbContext _db;
-        private readonly ILogger<LeaderboardService> _logger;
         private readonly string _key;
 
-        public LeaderboardService(
-            IConnectionMultiplexer redis,
-            GameDbContext db,
-            IConfiguration configuration,
-            ILogger<LeaderboardService> logger)
+        public LeaderboardService(IConnectionMultiplexer redis, GameDbContext db, IConfiguration configuration)
         {
             // GetDatabase(): lấy "cửa" để gửi lệnh. Rất nhẹ, không mở kết nối mới.
             _redis = redis.GetDatabase();
             _db = db;
-            _logger = logger;
 
             // Cho phép đổi tên key qua cấu hình: test dùng key riêng để không đụng bảng xếp hạng thật.
             _key = configuration["Leaderboard:RedisKey"] ?? "leaderboard:gold";
@@ -162,26 +156,19 @@ namespace ServerSampleApi.Services
         }
 
         /// <summary>
-        /// Gọi lúc server khởi động: Redis chưa có bảng xếp hạng (mới cài Redis, lỡ xoá key, mất dữ liệu...)
-        /// thì tự dựng lại từ PostgreSQL. Redis lỗi thì chỉ ghi log cảnh báo, server vẫn khởi động bình thường.
+        /// Redis chưa có bảng xếp hạng thì dựng lại từ PostgreSQL. Trả về số người chơi đã nạp,
+        /// hoặc null nếu bảng đã có sẵn nên không làm gì. Lỗi (Redis/PostgreSQL tắt...) thì ném ra cho nơi gọi xử lý.
+        /// Được gọi lúc server khởi động, bởi LeaderboardStartupRebuildService.
         /// </summary>
-        public async Task RebuildIfMissingAsync()
+        public async Task<int?> RebuildIfMissingAsync()
         {
-            try
+            // EXISTS leaderboard:gold
+            if (await _redis.KeyExistsAsync(_key))
             {
-                // EXISTS leaderboard:gold
-                if (await _redis.KeyExistsAsync(_key))
-                {
-                    return;
-                }
+                return null;
+            }
 
-                int playerCount = await RebuildAsync();
-                _logger.LogInformation("Leaderboard rebuilt from PostgreSQL with {PlayerCount} players", playerCount);
-            }
-            catch (Exception ex) when (ex is RedisException or RedisTimeoutException)
-            {
-                _logger.LogWarning(ex, "Could not rebuild leaderboard on startup");
-            }
+            return await RebuildAsync();
         }
     }
 }
