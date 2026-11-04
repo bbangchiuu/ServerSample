@@ -37,14 +37,23 @@ public class ApiError
 /// Các callback cũng được gọi trên main thread, nên cập nhật giao diện trong callback là an toàn.
 /// Bỏ trống onError thì lỗi được ghi ra Console bằng Debug.LogWarning, không bị im lặng.
 ///
-/// Đăng nhập: Register/Login thành công thì ApiClient TỰ GIỮ token (JWT) và tự gửi kèm
-/// "Authorization: Bearer &lt;token&gt;" cho các API của người chơi. Server lấy playerId từ token,
-/// nên các hàm bên dưới không cần (và không nhận) playerId nữa.
+/// Đăng nhập: Register/Login thành công thì ApiClient TỰ GIỮ hai token:
+///  - Access token (JWT, sống 15 phút): gửi kèm "Authorization: Bearer &lt;token&gt;" cho các API của người chơi.
+///    Server lấy playerId từ token, nên các hàm bên dưới không cần (và không nhận) playerId.
+///  - Refresh token (sống 30 ngày): access token hết hạn thì ApiClient TỰ đổi refresh token lấy cặp token mới,
+///    rồi gửi lại request vừa bị từ chối. Người gọi không thấy gì, chỉ thấy request thành công.
+/// Chỉ khi refresh token cũng không dùng được nữa thì người gọi mới nhận lỗi 401 "Session expired".
 /// Mỗi ApiClient giữ token của MỘT người chơi. Muốn thử nhiều người chơi cùng lúc thì tạo nhiều ApiClient.
 /// </summary>
 public class ApiClient
 {
     private readonly string _baseUrl;
+
+    /// <summary>Refresh token hiện tại. Mỗi lần làm mới, server phát token mới và token cũ không dùng được nữa.</summary>
+    private string? _refreshToken;
+
+    /// <summary>Lần làm mới token đang chạy dở, để các request cùng gặp 401 chờ chung một lần làm mới.</summary>
+    private Task<ApiError?>? _refreshTask;
 
     public ApiClient(string baseUrl)
     {
@@ -59,10 +68,22 @@ public class ApiClient
 
     public bool IsLoggedIn => AccessToken != null;
 
-    /// <summary>Quên token. Server không lưu token nên không cần báo cho server (bước 5 sẽ làm đăng xuất thật).</summary>
+    /// <summary>
+    /// Đăng xuất: quên token ngay trên máy, rồi báo server thu hồi refresh token.
+    /// Không chờ server trả lời: lỡ mạng lỗi thì người chơi vẫn đăng xuất được, chỉ là refresh token
+    /// trên server còn sống tới khi hết hạn (máy này đã quên nó nên không ai dùng nữa).
+    /// </summary>
     public void Logout()
     {
-        AccessToken = null;
+        string? refreshToken = _refreshToken;
+        ClearTokens();
+
+        if (refreshToken != null)
+        {
+            Send<EmptyResponse>("POST", "/api/accounts/logout", new RefreshTokenRequest { refreshToken = refreshToken },
+                requiresLogin: false, _ => { },
+                error => Debug.LogWarning($"[ApiClient] Server logout failed ({error.StatusCode}): {error.Message}"));
+        }
     }
 
     // ===== Tài khoản (không cần đăng nhập) =====
@@ -78,7 +99,7 @@ public class ApiClient
     /// <summary>Giữ token lại TRƯỚC khi báo cho người gọi, để trong onSuccess gọi ngay API cần đăng nhập là được.</summary>
     private void OnLoggedIn(AccountResponse account, Action<AccountResponse> onSuccess)
     {
-        AccessToken = account.accessToken;
+        StoreTokens(account);
         onSuccess(account);
     }
 
@@ -114,25 +135,157 @@ public class ApiClient
     private async void Send<T>(string method, string path, object? body, bool requiresLogin,
         Action<T> onSuccess, Action<ApiError>? onError)
     {
-        T data = default!;
-        ApiError? error = null;
+        (T data, ApiError? error) = await SendWithRefreshAsync<T>(method, path, body, requiresLogin);
 
-        if (requiresLogin && AccessToken == null)
+        // Gọi callback SAU khi đã xử lý xong request. Nếu code trong callback của bạn bị lỗi,
+        // lỗi đó hiện thẳng ra Console, không bị lẫn thành "lỗi mạng".
+        if (error == null)
         {
-            Report(new ApiError(401, "Not logged in.", ""));
-            return;
+            onSuccess(data);
+        }
+        else if (onError != null)
+        {
+            onError(error);
+        }
+        else
+        {
+            Debug.LogWarning($"[ApiClient] {method} {path} failed ({error.StatusCode}): {error.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Gửi request. Nếu là API cần đăng nhập mà server trả 401 (access token hết hạn) thì làm mới token
+    /// rồi gửi lại ĐÚNG MỘT lần. Gửi lại vẫn 401 thì thôi, không thử mãi.
+    /// </summary>
+    private async Task<(T data, ApiError? error)> SendWithRefreshAsync<T>(string method, string path, object? body, bool requiresLogin)
+    {
+        if (!requiresLogin)
+        {
+            return await SendOnceAsync<T>(method, path, body, accessToken: null);
         }
 
+        if (AccessToken == null)
+        {
+            return (default!, new ApiError(401, "Not logged in.", ""));
+        }
+
+        string usedToken = AccessToken;
+        (T data, ApiError? error) = await SendOnceAsync<T>(method, path, body, usedToken);
+        if (error == null || error.StatusCode != 401)
+        {
+            return (data, error);
+        }
+
+        // 401. Nếu token đã đổi trong lúc request này đang chạy (một request khác vừa làm mới xong),
+        // thì không cần làm mới nữa, chỉ cần gửi lại bằng token mới.
+        if (AccessToken == usedToken)
+        {
+            ApiError? refreshError = await RefreshTokensAsync();
+            if (refreshError != null)
+            {
+                return (default!, refreshError);
+            }
+        }
+
+        if (AccessToken == null)
+        {
+            // Người chơi đã đăng xuất trong lúc chờ.
+            return (default!, new ApiError(401, "Not logged in.", ""));
+        }
+
+        (T retryData, ApiError? retryError) = await SendOnceAsync<T>(method, path, body, AccessToken);
+        if (retryError != null && retryError.StatusCode == 401)
+        {
+            // Token vừa làm mới mà vẫn bị từ chối: có gì đó sai hẳn, bắt đăng nhập lại.
+            ClearTokens();
+            return (default!, new ApiError(401, "Session expired. Please log in again.", retryError.RawBody));
+        }
+        return (retryData, retryError);
+    }
+
+    /// <summary>
+    /// Làm mới token. Trả về null nếu thành công, hoặc lỗi nếu thất bại.
+    ///
+    /// Nhiều request cùng gặp 401 một lúc (ví dụ bấm B: 20 request nhận thưởng cùng lúc) thì chỉ gửi MỘT request làm mới,
+    /// các request kia chờ chung kết quả của nó. Nếu mỗi request tự làm mới, cùng một refresh token sẽ bị gửi lên nhiều lần:
+    /// server tưởng token bị đánh cắp và thu hồi TẤT CẢ token, người chơi bị đăng xuất.
+    ///
+    /// Không cần lock: mọi đoạn code ở đây đều chạy trên main thread của Unity (sau mỗi await, Unity đưa code
+    /// quay về main thread), nên không có hai đoạn nào chạy song song để tranh nhau _refreshTask.
+    /// </summary>
+    private Task<ApiError?> RefreshTokensAsync()
+    {
+        if (_refreshTask == null || _refreshTask.IsCompleted)
+        {
+            _refreshTask = RefreshTokensCoreAsync();
+        }
+        return _refreshTask;
+    }
+
+    private async Task<ApiError?> RefreshTokensCoreAsync()
+    {
+        string? refreshToken = _refreshToken;
+        if (refreshToken == null)
+        {
+            ClearTokens();
+            return new ApiError(401, "Session expired. Please log in again.", "");
+        }
+
+        (AccountResponse account, ApiError? error) = await SendOnceAsync<AccountResponse>(
+            "POST", "/api/accounts/refresh", new RefreshTokenRequest { refreshToken = refreshToken }, accessToken: null);
+
+        if (_refreshToken != refreshToken)
+        {
+            // Trong lúc chờ, người chơi đã đăng xuất (hoặc đăng nhập tài khoản khác): bỏ kết quả này.
+            return new ApiError(401, "Not logged in.", "");
+        }
+
+        if (error == null)
+        {
+            StoreTokens(account);
+            Debug.Log($"[ApiClient] Access token refreshed, expires at {account.accessTokenExpiresAt} (UTC)");
+            return null;
+        }
+
+        if (error.StatusCode == 0)
+        {
+            // Không tới được server (mất mạng...): GIỮ token, lát nữa mạng có lại thì làm mới tiếp được.
+            return error;
+        }
+
+        // Server từ chối refresh token (hết hạn, đã thu hồi...): phải đăng nhập lại bằng mật khẩu.
+        ClearTokens();
+        return new ApiError(401, "Session expired. Please log in again.", error.RawBody);
+    }
+
+    private void StoreTokens(AccountResponse account)
+    {
+        AccessToken = account.accessToken;
+        _refreshToken = account.refreshToken;
+    }
+
+    private void ClearTokens()
+    {
+        AccessToken = null;
+        _refreshToken = null;
+    }
+
+    /// <summary>
+    /// Gửi đúng MỘT request (không tự làm mới token). accessToken khác null thì gửi kèm header Authorization.
+    /// Trả về (dữ liệu, null) nếu thành công, hoặc (default, lỗi) nếu thất bại.
+    /// </summary>
+    private async Task<(T data, ApiError? error)> SendOnceAsync<T>(string method, string path, object? body, string? accessToken)
+    {
         using (var request = new UnityWebRequest(_baseUrl + path, method))
         {
             request.downloadHandler = new DownloadHandlerBuffer();
             request.SetRequestHeader("Accept", "application/json");
             request.timeout = 10; // giây: server không trả lời thì bỏ cuộc, không treo mãi
 
-            if (requiresLogin)
+            if (accessToken != null)
             {
                 // Header chuẩn để gửi JWT: chữ "Bearer", một dấu cách, rồi tới token.
-                request.SetRequestHeader("Authorization", "Bearer " + AccessToken);
+                request.SetRequestHeader("Authorization", "Bearer " + accessToken);
             }
 
             if (body != null)
@@ -147,58 +300,28 @@ public class ApiClient
             string text = request.downloadHandler.text;
             switch (request.result)
             {
-                case UnityWebRequest.Result.Success: // mọi status 2xx: 200, 201...
+                case UnityWebRequest.Result.Success: // mọi status 2xx: 200, 201, 204...
+                    if (string.IsNullOrEmpty(text))
+                    {
+                        return (default!, null); // 204 No Content: không có dữ liệu để đọc
+                    }
                     try
                     {
-                        data = JsonUtility.FromJson<T>(text);
+                        return (JsonUtility.FromJson<T>(text), null);
                     }
                     catch (ArgumentException)
                     {
-                        error = new ApiError(request.responseCode, "Invalid JSON from server.", text);
+                        return (default!, new ApiError(request.responseCode, "Invalid JSON from server.", text));
                     }
-                    break;
 
                 case UnityWebRequest.Result.ProtocolError: // server có trả lời, nhưng là lỗi 4xx/5xx
-                    if (request.responseCode == 401 && requiresLogin)
-                    {
-                        // Token hết hạn hoặc không hợp lệ: bỏ token đi, người chơi phải đăng nhập lại.
-                        // Lý do cụ thể nằm trong header WWW-Authenticate, ví dụ: The token expired at ...
-                        AccessToken = null;
-                        error = new ApiError(401, "Session expired. Please log in again.",
-                            request.GetResponseHeader("WWW-Authenticate") ?? "");
-                    }
-                    else
-                    {
-                        error = new ApiError(request.responseCode, ReadProblemMessage(text, request.error), text);
-                    }
-                    break;
+                    // 401 do token sai/hết hạn thì body rỗng, lý do nằm trong header WWW-Authenticate,
+                    // ví dụ: Bearer error="invalid_token", error_description="The token expired at ..."
+                    string rawBody = string.IsNullOrEmpty(text) ? request.GetResponseHeader("WWW-Authenticate") ?? "" : text;
+                    return (default!, new ApiError(request.responseCode, ReadProblemMessage(text, request.error), rawBody));
 
                 default: // không tới được server: chưa bật server, sai cổng, sai giao thức, hết thời gian chờ...
-                    error = new ApiError(0, request.error, text);
-                    break;
-            }
-        }
-
-        // Gọi callback SAU khi đã xử lý xong request. Nếu code trong callback của bạn bị lỗi,
-        // lỗi đó hiện thẳng ra Console, không bị lẫn thành "lỗi mạng".
-        if (error == null)
-        {
-            onSuccess(data);
-        }
-        else
-        {
-            Report(error);
-        }
-
-        void Report(ApiError apiError)
-        {
-            if (onError != null)
-            {
-                onError(apiError);
-            }
-            else
-            {
-                Debug.LogWarning($"[ApiClient] {method} {path} failed ({apiError.StatusCode}): {apiError.Message}");
+                    return (default!, new ApiError(0, request.error, text));
             }
         }
     }

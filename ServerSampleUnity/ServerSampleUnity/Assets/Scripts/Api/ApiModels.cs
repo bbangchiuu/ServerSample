@@ -28,6 +28,25 @@ public class AccountResponse
 
     /// <summary>Thời điểm token hết hạn (UTC), ví dụ "2026-11-03T10:00:00Z". Đọc dạng string vì JsonUtility không đọc được DateTime.</summary>
     public string accessTokenExpiresAt;
+
+    /// <summary>Dùng để lấy access token mới khi access token hết hạn. ApiClient tự giữ và tự dùng.</summary>
+    public string refreshToken;
+
+    /// <summary>Thời điểm refresh token hết hạn (UTC). Quá thời điểm này thì phải đăng nhập lại bằng mật khẩu.</summary>
+    public string refreshTokenExpiresAt;
+}
+
+/// <summary>Gửi lên /api/accounts/refresh và /api/accounts/logout.</summary>
+[Serializable]
+public class RefreshTokenRequest
+{
+    public string refreshToken;
+}
+
+/// <summary>Dùng cho các API không trả về dữ liệu gì (204 No Content), ví dụ /api/accounts/logout.</summary>
+[Serializable]
+public class EmptyResponse
+{
 }
 
 [Serializable]

@@ -68,13 +68,15 @@ public class ApiTestController : MonoBehaviour
     private void OnLoggedIn(AccountResponse account)
     {
         // Token đã được ApiClient giữ lại. _playerId chỉ để hiển thị, không gửi lên server nữa.
+        // Access token hết hạn thì ApiClient tự làm mới bằng refresh token, màn hình này không cần làm gì.
         _playerId = account.playerId;
-        AddLog($"Token expires at {account.accessTokenExpiresAt} (UTC)");
+        AddLog($"Access token expires at {account.accessTokenExpiresAt}, refresh token at {account.refreshTokenExpiresAt} (UTC)");
         RefreshAll();
     }
 
     private void Logout()
     {
+        // ApiClient quên token và báo server thu hồi refresh token.
         _api.Logout();
         _playerId = "";
         _profile = null;
@@ -177,8 +179,9 @@ public class ApiTestController : MonoBehaviour
                 AddLog($"   {error.RawBody}"); // lỗi validation: xem chi tiết từng trường
             if (error.StatusCode == 401 && !_api.IsLoggedIn && _playerId != "")
             {
-                // Token hết hạn giữa chừng: ApiClient đã bỏ token, quay về màn hình đăng nhập.
-                AddLog($"   {error.RawBody}"); // lý do server trả về, ví dụ: The token expired at ...
+                // ApiClient đã thử làm mới token mà không được (refresh token hết hạn hoặc bị thu hồi)
+                // và đã bỏ token: quay về màn hình đăng nhập.
+                AddLog($"   {error.RawBody}"); // lý do server trả về
                 Logout();
             }
             _busy = false;
