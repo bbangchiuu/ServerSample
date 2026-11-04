@@ -47,6 +47,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
         // Không tự dựng lại bảng xếp hạng lúc khởi động: khi đó database test chưa chạy migration.
         builder.UseSetting("Leaderboard:RebuildOnStartup", "false");
+        builder.UseSetting("RefreshTokens:CleanupEnabled", "false");
 
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
         builder.UseSetting("System:ApiKey", SystemApiKey);

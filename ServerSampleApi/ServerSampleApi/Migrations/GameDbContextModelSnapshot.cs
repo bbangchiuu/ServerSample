@@ -111,6 +111,42 @@ namespace ServerSampleApi.Migrations
                     b.ToTable("Players");
                 });
 
+            modelBuilder.Entity("ServerSampleApi.Models.RefreshTokenModel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReplacedByTokenId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.ToTable("RefreshTokens");
+                });
+
             modelBuilder.Entity("ServerSampleApi.Models.InventoryItemModel", b =>
                 {
                     b.HasOne("ServerSampleApi.Models.PlayerModel", null)
@@ -125,6 +161,15 @@ namespace ServerSampleApi.Migrations
                     b.HasOne("ServerSampleApi.Models.AccountModel", null)
                         .WithOne()
                         .HasForeignKey("ServerSampleApi.Models.PlayerModel", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ServerSampleApi.Models.RefreshTokenModel", b =>
+                {
+                    b.HasOne("ServerSampleApi.Models.AccountModel", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

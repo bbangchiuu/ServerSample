@@ -25,6 +25,8 @@ namespace ServerSampleApi.Data
         public DbSet<InventoryItemModel> InventoryItems => Set<InventoryItemModel>();
         public DbSet<LogEventModel> LogEvents => Set<LogEventModel>();
 
+        public DbSet<RefreshTokenModel> RefreshTokens => Set<RefreshTokenModel>();
+
         /// <summary>Mô tả chi tiết từng bảng: khoá chính, khoá ngoại, độ dài cột, ràng buộc...</summary>
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -72,6 +74,22 @@ namespace ServerSampleApi.Data
                 // Khoá chính gồm 2 cột: mỗi người chơi chỉ có MỘT dòng cho mỗi loại vật phẩm.
                 item.HasKey(i => new { i.PlayerId, i.ItemId });
                 item.Property(i => i.ItemId).HasMaxLength(50);
+            });
+
+            modelBuilder.Entity<RefreshTokenModel>(token =>
+            {
+                token.HasKey(t => t.Id);
+
+                // SHA-256 viết dạng hex luôn dài đúng 64 ký tự.
+                // Unique index: tìm theo bản băm rất nhanh (mỗi lần làm mới token đều tìm), và không bao giờ trùng.
+                token.Property(t => t.TokenHash).HasMaxLength(64).IsRequired();
+                token.HasIndex(t => t.TokenHash).IsUnique();
+
+                // Một tài khoản có nhiều refresh token (đăng nhập trên nhiều máy). Xoá tài khoản thì xoá hết token.
+                token.HasOne<AccountModel>()
+                    .WithMany()
+                    .HasForeignKey(t => t.AccountId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
         }
     }

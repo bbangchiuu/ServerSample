@@ -30,9 +30,19 @@ namespace ServerSampleApi.Auth
         [MinLength(32)]
         public string SigningKey { get; set; } = "";
 
-        /// <summary>Token hết hạn sau bao nhiêu phút. Hết hạn thì phải đăng nhập lại.</summary>
+        /// <summary>
+        /// Access token (JWT) hết hạn sau bao nhiêu phút. Nên NGẮN: JWT không thu hồi được, nên token bị lộ
+        /// hoặc người chơi đã đăng xuất thì token vẫn dùng được tới lúc hết hạn. Hết hạn thì client dùng refresh token để lấy token mới.
+        /// </summary>
         [Range(1, 24 * 60)]
-        public int AccessTokenMinutes { get; set; } = 60;
+        public int AccessTokenMinutes { get; set; } = 15;
+
+        /// <summary>
+        /// Refresh token hết hạn sau bao nhiêu ngày. Không dùng game quá số ngày này thì phải đăng nhập lại.
+        /// Refresh token không phải JWT, nhưng để chung nhóm "Jwt" cho dễ tìm: cả hai đều là cấu hình đăng nhập.
+        /// </summary>
+        [Range(1, 365)]
+        public int RefreshTokenDays { get; set; } = 30;
 
         /// <summary>
         /// Khoá dùng cho HS256. Dùng CHUNG ở 2 nơi: TokenService (ký token) và JwtBearer trong Program.cs

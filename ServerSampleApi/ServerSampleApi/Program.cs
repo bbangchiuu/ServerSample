@@ -30,6 +30,10 @@ builder.Services.AddOptions<JwtOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 builder.Services.AddSingleton<TokenService>();
+// Scoped (không phải Singleton như TokenService) vì RefreshTokenService dùng GameDbContext.
+builder.Services.AddScoped<RefreshTokenService>();
+// Chạy ngầm suốt đời server: định kỳ xoá refresh token đã hết hạn.
+builder.Services.AddHostedService<RefreshTokenCleanupService>();
 
 // Authentication (xác thực: "bạn là ai?"): mỗi request, đọc header "Authorization: Bearer <token>" và kiểm tra token.
 // Token hợp lệ thì HttpContext.User (trong controller là "User") chứa các claim trong token: sub, unique_name...

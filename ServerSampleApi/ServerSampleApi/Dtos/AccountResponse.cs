@@ -15,7 +15,16 @@ namespace ServerSampleApi.Dtos
         /// </summary>
         public string AccessToken { get; set; } = "";
 
-        /// <summary>Thời điểm token hết hạn (UTC). Quá thời điểm này thì phải đăng nhập lại.</summary>
+        /// <summary>Thời điểm access token hết hạn (UTC). Hết hạn thì dùng RefreshToken để lấy token mới.</summary>
         public DateTime AccessTokenExpiresAt { get; set; }
+
+        /// <summary>
+        /// Gửi lên /api/accounts/refresh để lấy access token mới mà không cần nhập lại mật khẩu.
+        /// Chỉ dùng được MỘT lần: mỗi lần làm mới, server trả về refresh token mới, client phải thay token cũ bằng token mới.
+        /// </summary>
+        public string RefreshToken { get; set; } = "";
+
+        /// <summary>Thời điểm refresh token hết hạn (UTC). Hết hạn thì phải đăng nhập lại bằng mật khẩu.</summary>
+        public DateTime RefreshTokenExpiresAt { get; set; }
     }
 }

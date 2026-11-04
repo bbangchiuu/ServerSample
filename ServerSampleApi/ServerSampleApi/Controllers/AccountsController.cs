@@ -16,15 +16,21 @@ namespace ServerSampleApi.Controllers
         private readonly GameDbContext _db;
         private readonly IPasswordHasher<AccountModel> _passwordHasher;
         private readonly TokenService _tokenService;
+        private readonly RefreshTokenService _refreshTokens;
 
         // ASP.NET Core tự tạo Controller cho mỗi request và tự truyền các service vào đây
         // (Dependency Injection), dựa trên những gì đã đăng ký trong Program.cs.
         // GameDbContext là Scoped: mỗi request nhận một GameDbContext riêng.
-        public AccountsController(GameDbContext db, IPasswordHasher<AccountModel> passwordHasher, TokenService tokenService)
+        public AccountsController(
+            GameDbContext db,
+            IPasswordHasher<AccountModel> passwordHasher,
+            TokenService tokenService,
+            RefreshTokenService refreshTokens)
         {
             _db = db;
             _passwordHasher = passwordHasher;
             _tokenService = tokenService;
+            _refreshTokens = refreshTokens;
         }
 
         // POST /api/accounts/register
@@ -72,7 +78,8 @@ namespace ServerSampleApi.Controllers
             }
 
             // Đăng ký xong là đăng nhập luôn: trả token ngay, client không phải gọi login thêm lần nữa.
-            AccountResponse response = ToAccountResponse(account);
+            IssuedRefreshToken refreshToken = await _refreshTokens.IssueAsync(account.Id);
+            AccountResponse response = ToAccountResponse(account, refreshToken);
 
             // 201 Created: đã tạo tài nguyên mới. Header "Location" chỉ tới profile người chơi (/api/players/me).
             // CreatedAtAction tự sinh đường dẫn từ route thật của PlayersController.GetMyProfile,
@@ -115,11 +122,55 @@ namespace ServerSampleApi.Controllers
             }
 
             // 200 OK. account! : tới đây chắc chắn account khác null (đã kiểm tra trong passwordCorrect).
-            return Ok(ToAccountResponse(account!));
+            // Mỗi lần đăng nhập là một refresh token MỚI: đăng nhập trên 2 máy thì 2 máy có 2 token riêng,
+            // đăng xuất máy này không làm máy kia bị đăng xuất.
+            IssuedRefreshToken refreshToken = await _refreshTokens.IssueAsync(account!.Id);
+            return Ok(ToAccountResponse(account, refreshToken));
         }
 
-        /// <summary>Tạo token mới cho tài khoản rồi gói vào DTO trả về.</summary>
-        private AccountResponse ToAccountResponse(AccountModel account)
+        // POST /api/accounts/refresh
+        // Access token hết hạn: client gửi refresh token lên để nhận CẶP token mới (access token + refresh token),
+        // không cần nhập lại mật khẩu. Refresh token cũ bị thu hồi, client phải lưu refresh token mới thay cho nó.
+        [HttpPost("refresh")]
+        [ProducesResponseType(typeof(AccountResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<ActionResult<AccountResponse>> Refresh(RefreshTokenRequest request)
+        {
+            RotatedRefreshToken? rotated = await _refreshTokens.RotateAsync(request.RefreshToken);
+
+            // Đọc lại tài khoản từ database: lấy Username mới nhất cho token, và tài khoản đã bị xoá thì không cấp token nữa.
+            AccountModel? account = rotated == null
+                ? null
+                : await _db.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == rotated.AccountId);
+
+            if (rotated == null || account == null)
+            {
+                // Không nói rõ lý do (không có, hết hạn hay đã bị thu hồi): client xử lý như nhau, là quay về màn hình đăng nhập.
+                return Problem(
+                    title: "Invalid refresh token",
+                    detail: "Please log in again.",
+                    statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            return Ok(ToAccountResponse(account, rotated.NewToken));
+        }
+
+        // POST /api/accounts/logout
+        // Thu hồi refresh token: từ giờ không làm mới được nữa. Access token đang có vẫn dùng được tới lúc hết hạn
+        // (tối đa AccessTokenMinutes), vì server không lưu JWT nên không thu hồi được. Đó là lý do access token phải ngắn.
+        // Luôn trả 204, kể cả khi token không có thật: kết quả mà client muốn ("token này không dùng được nữa") đã đúng rồi.
+        [HttpPost("logout")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> Logout(RefreshTokenRequest request)
+        {
+            await _refreshTokens.RevokeAsync(request.RefreshToken);
+            return NoContent();
+        }
+
+        /// <summary>Tạo access token mới cho tài khoản, rồi gói cùng refresh token vào DTO trả về.</summary>
+        private AccountResponse ToAccountResponse(AccountModel account, IssuedRefreshToken refreshToken)
         {
             AccessToken accessToken = _tokenService.CreateAccessToken(account);
             return new AccountResponse
@@ -128,6 +179,8 @@ namespace ServerSampleApi.Controllers
                 Username = account.Username,
                 AccessToken = accessToken.Token,
                 AccessTokenExpiresAt = accessToken.ExpiresAt,
+                RefreshToken = refreshToken.Token,
+                RefreshTokenExpiresAt = refreshToken.ExpiresAt,
             };
         }
     }
