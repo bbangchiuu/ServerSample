@@ -68,6 +68,13 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
         };
     });
 
+// Khoá hệ thống cho các API quản trị ([RequireSystemKey]). Bí mật, nằm trong User Secrets như Jwt:SigningKey.
+// ValidateOnStart: quên đặt System:ApiKey thì server báo lỗi ngay lúc khởi động.
+builder.Services.AddOptions<SystemKeyOptions>()
+    .BindConfiguration(SystemKeyOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
 // Authorization (phân quyền: "bạn được làm gì?"): các API có [Authorize] chỉ cho người đã đăng nhập gọi.
 builder.Services.AddAuthorization();
 
@@ -121,6 +128,21 @@ builder.Services.AddOpenApi(options =>
             operation.Security.Add(new OpenApiSecurityRequirement
             {
                 [new OpenApiSecuritySchemeReference("Bearer", context.Document)] = new List<string>(),
+            });
+        }
+
+        // 3. API có [RequireSystemKey]: hiện ô nhập header "System-Authorization" ngay trong API đó.
+        //    Được hiện thành ô riêng vì đây là header tự đặt tên. Header tên "Authorization" thì Swagger bỏ qua.
+        if (metadata.OfType<RequireSystemKeyAttribute>().Any())
+        {
+            operation.Parameters ??= new List<IOpenApiParameter>();
+            operation.Parameters.Add(new OpenApiParameter
+            {
+                Name = RequireSystemKeyAttribute.HeaderName,
+                In = ParameterLocation.Header,
+                Required = true,
+                Description = "System:ApiKey trong User Secrets",
+                Schema = new OpenApiSchema { Type = JsonSchemaType.String },
             });
         }
         return Task.CompletedTask;

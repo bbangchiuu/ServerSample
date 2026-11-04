@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using ServerSampleApi.Auth;
 using ServerSampleApi.Data;
 using ServerSampleApi.Dtos;
 
@@ -44,6 +45,14 @@ internal static class TestHelper
         // Từ giờ mọi request của client này đều kèm: Authorization: Bearer eyJhbGciOi...
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", account!.AccessToken);
         return new TestPlayer(account.PlayerId, client);
+    }
+
+    /// <summary>Client của người quản trị: mọi request đều kèm header "System-Authorization: &lt;khoá hệ thống của test&gt;".</summary>
+    public static HttpClient CreateSystemClient(ApiFactory factory)
+    {
+        HttpClient client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(RequireSystemKeyAttribute.HeaderName, ApiFactory.SystemApiKey);
+        return client;
     }
 
     /// <summary>

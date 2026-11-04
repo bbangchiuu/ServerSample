@@ -36,6 +36,9 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     /// </summary>
     public const string JwtSigningKey = "test-only-signing-key-0123456789-abcdefghij";
 
+    /// <summary>Khoá hệ thống cho các API quản trị ([RequireSystemKey]), chỉ dùng cho test. Cùng lý do như JwtSigningKey.</summary>
+    public const string SystemApiKey = "test-only-system-key-0123456789-abcdefghij";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Ghi đè chuỗi kết nối "GameDb" trong appsettings.Development.json, chỉ trong server ảo của test.
@@ -46,6 +49,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Leaderboard:RebuildOnStartup", "false");
 
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
+        builder.UseSetting("System:ApiKey", SystemApiKey);
     }
 
     /// <summary>xUnit gọi hàm này MỘT lần, trước test đầu tiên của lớp test.</summary>

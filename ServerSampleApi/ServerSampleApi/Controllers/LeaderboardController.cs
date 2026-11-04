@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ServerSampleApi.Auth;
 using ServerSampleApi.Data;
 using ServerSampleApi.Dtos;
 using ServerSampleApi.Services;
@@ -72,9 +73,12 @@ namespace ServerSampleApi.Controllers
 
         // POST /api/leaderboard/rebuild
         // Dựng lại toàn bộ bảng xếp hạng từ PostgreSQL. Dùng khi Redis bị thiếu hoặc sai dữ liệu.
-        // ⚠ CHƯA ĐƯỢC BẢO VỆ: ai cũng gọi được. Giai đoạn 4 (JWT) sẽ giới hạn chỉ admin mới gọi được.
+        // Việc nặng (đọc cả bảng Players), nên chỉ người quản trị được gọi: phải gửi header
+        // "System-Authorization: <System:ApiKey>". Thiếu hoặc sai key → 401. Token JWT của người chơi không có tác dụng ở đây.
         [HttpPost("rebuild")]
+        [RequireSystemKey]
         [ProducesResponseType(typeof(LeaderboardRebuildResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         public async Task<ActionResult<LeaderboardRebuildResponse>> Rebuild()
         {
             int playerCount = await _leaderboard.RebuildAsync();
