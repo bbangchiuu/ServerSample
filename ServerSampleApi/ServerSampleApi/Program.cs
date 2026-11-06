@@ -117,7 +117,7 @@ builder.Services.AddOpenApi(options =>
             Description = "Dán accessToken lấy từ /api/accounts/login (không cần gõ chữ Bearer).",
         };
 
-#if ALLDOCUMENT
+#if ALLDOCUMENT_SYSTEMKEY
         // Kiểu thứ hai: khoá hệ thống. ApiKey = "gửi NGUYÊN VĂN chuỗi này trong header tên Name", không thêm chữ gì phía trước.
         // Nhờ khai báo ở đây mà hộp Authorize có thêm ô "SystemKey": dán một lần, Swagger tự gửi cho mọi API cần key.
         document.Components.SecuritySchemes["SystemKey"] = new OpenApiSecurityScheme
