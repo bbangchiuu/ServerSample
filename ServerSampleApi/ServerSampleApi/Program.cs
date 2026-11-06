@@ -116,6 +116,18 @@ builder.Services.AddOpenApi(options =>
             BearerFormat = "JWT",
             Description = "Dán accessToken lấy từ /api/accounts/login (không cần gõ chữ Bearer).",
         };
+
+#if ALLDOCUMENT
+        // Kiểu thứ hai: khoá hệ thống. ApiKey = "gửi NGUYÊN VĂN chuỗi này trong header tên Name", không thêm chữ gì phía trước.
+        // Nhờ khai báo ở đây mà hộp Authorize có thêm ô "SystemKey": dán một lần, Swagger tự gửi cho mọi API cần key.
+        document.Components.SecuritySchemes["SystemKey"] = new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.ApiKey,
+            In = ParameterLocation.Header,
+            Name = RequireSystemKeyAttribute.HeaderName,
+            Description = "Dán System:ApiKey trong User Secrets (dùng cho API quản trị, ví dụ dựng lại bảng xếp hạng).",
+        };
+#endif
         return Task.CompletedTask;
     });
 
@@ -135,6 +147,18 @@ builder.Services.AddOpenApi(options =>
             });
         }
 
+#if ALLDOCUMENT_SYSTEMKEY
+        // 3. API có [RequireSystemKey]: gắn "cần SystemKey". Swagger hiện ổ khoá, và gửi kèm header System-Authorization
+        //    với key đã dán trong hộp Authorize.
+        if (metadata.OfType<RequireSystemKeyAttribute>().Any())
+        {
+            operation.Security ??= new List<OpenApiSecurityRequirement>();
+            operation.Security.Add(new OpenApiSecurityRequirement
+            {
+                [new OpenApiSecuritySchemeReference("SystemKey", context.Document)] = new List<string>(),
+            });
+        }
+#else
         // 3. API có [RequireSystemKey]: hiện ô nhập header "System-Authorization" ngay trong API đó.
         //    Được hiện thành ô riêng vì đây là header tự đặt tên. Header tên "Authorization" thì Swagger bỏ qua.
         if (metadata.OfType<RequireSystemKeyAttribute>().Any())
@@ -149,6 +173,7 @@ builder.Services.AddOpenApi(options =>
                 Schema = new OpenApiSchema { Type = JsonSchemaType.String },
             });
         }
+#endif
         return Task.CompletedTask;
     });
 });
