@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using ServerSampleApi.Auth;
@@ -36,9 +37,11 @@ namespace ServerSampleApi.Controllers
         // POST /api/accounts/register
         // async Task<...>: đọc/ghi database là chờ mạng, nên dùng await để không giữ thread trong lúc chờ.
         [HttpPost("register")]
+        [EnableRateLimiting(RateLimitingOptions.RegisterPolicy)] // mỗi IP tối đa 10 tài khoản mỗi giờ (xem appsettings.json)
         [ProducesResponseType(typeof(AccountResponse), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         public async Task<ActionResult<AccountResponse>> Register(RegisterRequest request)
         {
             // Chạy được tới đây nghĩa là request đã hợp lệ: [ApiController] đã tự kiểm tra
@@ -94,9 +97,11 @@ namespace ServerSampleApi.Controllers
         // POST /api/accounts/login
         // Đúng mật khẩu thì trả về JWT. Bước tiếp theo các API khác sẽ đòi token này.
         [HttpPost("login")]
+        [EnableRateLimiting(RateLimitingOptions.LoginPolicy)] // mỗi IP tối đa 5 lần thử mỗi phút: chống dò mật khẩu
         [ProducesResponseType(typeof(AccountResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         public async Task<ActionResult<AccountResponse>> Login(LoginRequest request)
         {
             // EF Core dịch dòng này thành câu SQL: SELECT ... FROM "Accounts" WHERE "Username" = @p LIMIT 1

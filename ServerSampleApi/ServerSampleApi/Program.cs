@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -78,6 +81,56 @@ builder.Services.AddOptions<SystemKeyOptions>()
     .BindConfiguration(SystemKeyOptions.SectionName)
     .ValidateDataAnnotations()
     .ValidateOnStart();
+
+// Rate limiting: giới hạn số lần gọi /login và /register của mỗi IP. Có sẵn trong ASP.NET Core.
+builder.Services.AddOptions<RateLimitingOptions>()
+    .BindConfiguration(RateLimitingOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services.AddRateLimiter(options =>
+{
+    // Vượt giới hạn: trả 429 kèm Retry-After (số giây phải chờ) và ProblemDetails như mọi lỗi khác.
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        HttpResponse response = context.HttpContext.Response;
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
+        {
+            response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
+        }
+        await response.WriteAsJsonAsync(new ProblemDetails
+        {
+            Title = "Too many requests",
+            Detail = "Please wait and try again later.",
+            Status = StatusCodes.Status429TooManyRequests,
+        }, cancellationToken);
+    };
+
+    options.AddPolicy(RateLimitingOptions.LoginPolicy, httpContext =>
+    {
+        RateLimitingOptions limits = httpContext.RequestServices.GetRequiredService<IOptions<RateLimitingOptions>>().Value;
+        return PerIpFixedWindow(httpContext, limits.LoginPermitLimit, limits.LoginWindowSeconds);
+    });
+    options.AddPolicy(RateLimitingOptions.RegisterPolicy, httpContext =>
+    {
+        RateLimitingOptions limits = httpContext.RequestServices.GetRequiredService<IOptions<RateLimitingOptions>>().Value;
+        return PerIpFixedWindow(httpContext, limits.RegisterPermitLimit, limits.RegisterWindowSeconds);
+    });
+
+    // Mỗi IP một bộ đếm riêng ("partition"). Fixed window: chia thời gian thành từng cửa sổ (ví dụ mỗi 60 giây),
+    // trong một cửa sổ được tối đa permitLimit request, sang cửa sổ mới thì đếm lại từ 0.
+    // Bộ đếm nằm trong RAM của server: khởi động lại là mất, chạy nhiều server thì mỗi server đếm riêng.
+    static RateLimitPartition<string> PerIpFixedWindow(HttpContext httpContext, int permitLimit, int windowSeconds) =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = permitLimit,
+                Window = TimeSpan.FromSeconds(windowSeconds),
+                QueueLimit = 0, // hết hạn mức thì từ chối NGAY, không xếp hàng chờ
+            });
+});
 
 // Authorization (phân quyền: "bạn được làm gì?"): các API có [Authorize] chỉ cho người đã đăng nhập gọi.
 builder.Services.AddAuthorization();
@@ -188,6 +241,10 @@ var app = builder.Build();
 }
 
 app.UseHttpsRedirection();
+
+// Đặt TRƯỚC Authentication: request vượt giới hạn bị chặn ngay, không tốn công kiểm tra token hay đọc database.
+// Chỉ áp dụng cho API có [EnableRateLimiting(...)], các API khác đi qua bình thường.
+app.UseRateLimiter();
 
 // Thứ tự quan trọng: phải biết "bạn là ai" (Authentication) rồi mới xét "bạn được làm gì" (Authorization).
 app.UseAuthentication();

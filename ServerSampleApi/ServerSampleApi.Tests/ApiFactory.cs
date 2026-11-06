@@ -51,6 +51,11 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
         builder.UseSetting("System:ApiKey", SystemApiKey);
+
+        // Mọi request trong test đều đến từ cùng một "máy", nên chung một bộ đếm giới hạn. Mỗi lớp test đăng ký
+        // hàng chục tài khoản, nên nới rộng giới hạn ra. RateLimitApiTests mới đặt giới hạn thấp để thử 429.
+        builder.UseSetting("RateLimiting:LoginPermitLimit", "10000");
+        builder.UseSetting("RateLimiting:RegisterPermitLimit", "10000");
     }
 
     /// <summary>xUnit gọi hàm này MỘT lần, trước test đầu tiên của lớp test.</summary>
