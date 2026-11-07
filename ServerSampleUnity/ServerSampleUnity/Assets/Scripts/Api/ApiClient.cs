@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Globalization;
 using System.Text;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -67,6 +68,43 @@ public class ApiClient
     public string? AccessToken { get; private set; }
 
     public bool IsLoggedIn => AccessToken != null;
+
+    /// <summary>Thời điểm access token hết hạn (UTC), đọc từ accessTokenExpiresAt server trả về.</summary>
+    private DateTime _accessTokenExpiresAt;
+
+    /// <summary>Token còn hạn ít hơn khoảng này thì coi như sắp hết, làm mới trước cho chắc.</summary>
+    private static readonly TimeSpan AccessTokenRefreshMargin = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// Trả về access token CÒN HẠN, dùng cho những chỗ cần token mà không đi qua Send (ví dụ kết nối HubClient).
+    /// Token sắp hết hạn thì làm mới trước bằng refresh token. Kết quả:
+    ///  - token: dùng được ngay;
+    ///  - null: chưa đăng nhập, hoặc refresh token cũng hết hạn/bị thu hồi (phải đăng nhập lại);
+    ///  - ném exception: không tới được server để làm mới (mất mạng...), lát nữa thử lại.
+    /// </summary>
+    public async Task<string?> GetValidAccessTokenAsync()
+    {
+        if (AccessToken == null)
+        {
+            return null;
+        }
+
+        if (DateTime.UtcNow < _accessTokenExpiresAt - AccessTokenRefreshMargin)
+        {
+            return AccessToken;
+        }
+
+        ApiError? error = await RefreshTokensAsync();
+        if (error == null)
+        {
+            return AccessToken;
+        }
+        if (error.StatusCode == 0)
+        {
+            throw new InvalidOperationException("Cannot refresh access token: " + error.Message);
+        }
+        return null; // server từ chối refresh token, ApiClient đã xoá token
+    }
 
     /// <summary>
     /// Đăng xuất: quên token ngay trên máy, rồi báo server thu hồi refresh token.
@@ -262,6 +300,13 @@ public class ApiClient
     {
         AccessToken = account.accessToken;
         _refreshToken = account.refreshToken;
+
+        // "2026-11-07T09:26:37.95Z": chữ Z nghĩa là giờ UTC. RoundtripKind giữ nguyên thông tin đó khi đọc.
+        // Đọc không được thì coi như đã hết hạn: lần sau GetValidAccessTokenAsync sẽ làm mới, không sao cả.
+        _accessTokenExpiresAt = DateTime.TryParse(account.accessTokenExpiresAt, CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind, out DateTime expiresAt)
+            ? expiresAt.ToUniversalTime()
+            : DateTime.MinValue;
     }
 
     private void ClearTokens()

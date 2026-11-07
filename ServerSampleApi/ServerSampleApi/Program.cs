@@ -172,7 +172,11 @@ builder.Services.AddScoped<LeaderboardService>();
 builder.Services.AddHostedService<LeaderboardStartupRebuildService>();
 
 // SignalR (realtime): có sẵn trong ASP.NET Core, không cần cài package. Hub nằm trong thư mục Hubs.
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(options =>
+{
+    options.KeepAliveInterval = TimeSpan.FromSeconds(15);     // server gửi ping
+    options.ClientTimeoutInterval = TimeSpan.FromSeconds(30); // chờ client tối đa
+});
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi(options =>

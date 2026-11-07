@@ -42,8 +42,9 @@ public class ApiTestController : MonoBehaviour
     {
         _api = new ApiClient(baseUrl);
 
-        // Hub lấy token từ ApiClient lúc kết nối, nên luôn dùng token mới nhất.
-        _hub = new HubClient(baseUrl, () => _api.AccessToken);
+        // Mỗi lần kết nối (kể cả tự kết nối lại sau 15 phút), hub xin ApiClient một token CÒN HẠN:
+        // token sắp hết hạn thì ApiClient làm mới bằng refresh token trước.
+        _hub = new HubClient(baseUrl, () => _api.GetValidAccessTokenAsync());
 
         // Hàm SERVER gọi xuống (tên trùng IGameClient.ReceiveChatMessage ở server). Chạy trên main thread.
         _hub.On<ChatMessage>("ReceiveChatMessage", message =>
@@ -51,6 +52,8 @@ public class ApiTestController : MonoBehaviour
             DateTime sentAt = DateTime.Parse(message.sentAt, null, System.Globalization.DateTimeStyles.RoundtripKind);
             AddChatLine($"[{sentAt.ToLocalTime():HH:mm:ss}] {message.displayName}: {message.text}");
         });
+        _hub.Reconnecting += error => AddChatLine($"(Chat connection lost: {error} Reconnecting...)");
+        _hub.Reconnected += () => AddChatLine("(Chat reconnected)");
         _hub.Closed += error => AddChatLine(error == null ? "(Chat disconnected)" : $"(Chat disconnected: {error})");
     }
 
@@ -96,14 +99,14 @@ public class ApiTestController : MonoBehaviour
         _playerId = account.playerId;
         AddLog($"Access token expires at {account.accessTokenExpiresAt}, refresh token at {account.refreshTokenExpiresAt} (UTC)");
         RefreshAll();
-        ConnectChat();
+        ConnectWebSocket();
     }
 
     /// <summary>
     /// async void: được phép dùng cho hàm "bấm nút / sự kiện" như thế này, nhưng PHẢI tự bắt lỗi bên trong.
     /// Lỗi lọt ra khỏi async void không có ai bắt, chỉ hiện ra Console.
     /// </summary>
-    private async void ConnectChat()
+    private async void ConnectWebSocket()
     {
         try
         {
@@ -325,7 +328,7 @@ public class ApiTestController : MonoBehaviour
         {
             // Chat không phụ thuộc _busy: đang chờ API khác vẫn chat được.
             GUILayout.Space(8);
-            GUILayout.Label(_hub.IsConnected ? "Chat (connected):" : "Chat (not connected):");
+            GUILayout.Label($"Chat ({_hub.State}):");
             foreach (string line in _chat)
                 GUILayout.Label("   " + line);
 
@@ -333,8 +336,9 @@ public class ApiTestController : MonoBehaviour
             _chatText = GUILayout.TextField(_chatText, 200, GUILayout.Width(400));
             GUI.enabled = _hub.IsConnected;
             if (GUILayout.Button("Send")) SendChat();
-            GUI.enabled = !_hub.IsConnected;
-            if (GUILayout.Button("Reconnect")) ConnectChat();
+            // Đang tự kết nối lại thì không cho bấm: chỉ bấm được khi đã đóng hẳn (tự kết nối lại cũng bỏ cuộc).
+            GUI.enabled = _hub.State == HubConnectionState.Disconnected;
+            if (GUILayout.Button("Reconnect")) ConnectWebSocket();
             GUI.enabled = true;
             GUILayout.EndHorizontal();
         }
