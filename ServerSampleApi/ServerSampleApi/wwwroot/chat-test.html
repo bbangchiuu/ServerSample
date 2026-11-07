@@ -1,0 +1,107 @@
+<!doctype html>
+<!--
+  Trang thử chat realtime (giai đoạn 5). Mở https://localhost:5257/chat-test.html ở HAI tab,
+  đăng nhập hai tài khoản khác nhau rồi chat qua lại.
+  Dùng thư viện SignalR chính thức cho JavaScript (tải từ CDN), không phải code của game.
+-->
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chat Test</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 24px auto; padding: 0 16px; }
+    input, button { font-size: 14px; padding: 6px 8px; }
+    #messages { border: 1px solid #ccc; height: 320px; overflow-y: auto; padding: 8px; margin: 12px 0; }
+    .meta { color: #888; font-size: 12px; }
+    .system { color: #b36b00; }
+  </style>
+</head>
+<body>
+  <h2>Chat Test</h2>
+
+  <div>
+    <input id="username" placeholder="Username">
+    <input id="password" type="password" placeholder="Password" value="secret123">
+    <button id="login">Login + Connect</button>
+  </div>
+
+  <div id="messages"></div>
+
+  <div>
+    <input id="text" placeholder="Tin nhắn..." maxlength="200" style="width: 70%" disabled>
+    <button id="send" disabled>Send</button>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+  <script>
+    const messages = document.getElementById("messages");
+    let connection = null;
+
+    function addLine(text, cssClass) {
+      const line = document.createElement("div");
+      if (cssClass) line.className = cssClass;
+      // textContent (không dùng innerHTML): tin nhắn có chứa "<script>" cũng chỉ hiện ra như chữ,
+      // không bị trình duyệt chạy như code (chống tấn công XSS).
+      line.textContent = text;
+      messages.appendChild(line);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    document.getElementById("login").onclick = async () => {
+      // 1. Đăng nhập bằng HTTP API như bình thường để lấy access token.
+      const response = await fetch("/api/accounts/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: document.getElementById("username").value,
+          password: document.getElementById("password").value,
+        }),
+      });
+      if (!response.ok) {
+        addLine(`Login failed: ${response.status}`, "system");
+        return;
+      }
+      const account = await response.json();
+
+      // 2. Mở kết nối SignalR tới hub. accessTokenFactory: thư viện tự gắn token vào URL (?access_token=...).
+      if (connection) await connection.stop();
+      connection = new signalR.HubConnectionBuilder()
+        .withUrl("/hubs/game", { accessTokenFactory: () => account.accessToken })
+        .withAutomaticReconnect()
+        .build();
+
+      // 3. Đăng ký hàm mà SERVER sẽ gọi (tên phải trùng với IGameClient.ReceiveChatMessage).
+      connection.on("ReceiveChatMessage", message => {
+        const time = new Date(message.sentAt).toLocaleTimeString();
+        addLine(`[${time}] ${message.displayName}: ${message.text}`);
+      });
+      connection.onreconnecting(() => addLine("Mất kết nối, đang kết nối lại...", "system"));
+      connection.onreconnected(() => addLine("Đã kết nối lại.", "system"));
+      connection.onclose(() => addLine("Đã ngắt kết nối.", "system"));
+
+      try {
+        await connection.start();
+        addLine(`Connected as ${account.username}`, "system");
+        document.getElementById("text").disabled = false;
+        document.getElementById("send").disabled = false;
+      } catch (error) {
+        addLine(`Connect failed: ${error}`, "system");
+      }
+    };
+
+    async function send() {
+      const input = document.getElementById("text");
+      try {
+        // 4. Gọi hàm của SERVER (GameHub.SendChatMessage). Server sẽ gọi ReceiveChatMessage của mọi người.
+        await connection.invoke("SendChatMessage", input.value);
+        input.value = "";
+      } catch (error) {
+        addLine(`Send failed: ${error.message}`, "system");
+      }
+    }
+    document.getElementById("send").onclick = send;
+    document.getElementById("text").onkeydown = e => { if (e.key === "Enter") send(); };
+  </script>
+</body>
+</html>

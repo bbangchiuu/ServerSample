@@ -11,6 +11,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using ServerSampleApi.Auth;
 using ServerSampleApi.Data;
+using ServerSampleApi.Hubs;
 using ServerSampleApi.Models;
 using ServerSampleApi.Services;
 using StackExchange.Redis;
@@ -72,6 +73,22 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
 
             // User.Identity.Name sẽ lấy từ claim "unique_name" (tên tài khoản).
             NameClaimType = JwtRegisteredClaimNames.UniqueName,
+        };
+
+        bearerOptions.Events = new JwtBearerEvents
+        {
+            // Riêng hub SignalR: lấy token từ URL "?access_token=...".
+            // Trình duyệt KHÔNG cho JavaScript đặt header khi mở WebSocket, nên client SignalR gửi token trên URL.
+            // Chỉ nhận cách này cho đường dẫn của hub: URL dễ bị ghi vào log, các API thường vẫn bắt dùng header.
+            OnMessageReceived = context =>
+            {
+                string? accessToken = context.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(accessToken) && context.HttpContext.Request.Path.StartsWithSegments(GameHub.Path))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            },
         };
     });
 
@@ -153,6 +170,9 @@ builder.Services.AddScoped<LeaderboardService>();
 
 // Redis chưa có bảng xếp hạng thì dựng lại từ PostgreSQL, chạy NGẦM khi server khởi động (không làm server chờ).
 builder.Services.AddHostedService<LeaderboardStartupRebuildService>();
+
+// SignalR (realtime): có sẵn trong ASP.NET Core, không cần cài package. Hub nằm trong thư mục Hubs.
+builder.Services.AddSignalR();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi(options =>
@@ -242,6 +262,9 @@ var app = builder.Build();
 
 app.UseHttpsRedirection();
 
+// Trả về các file tĩnh trong thư mục wwwroot, ví dụ trang thử chat: https://localhost:5257/chat-test.html
+app.UseStaticFiles();
+
 // Đặt TRƯỚC Authentication: request vượt giới hạn bị chặn ngay, không tốn công kiểm tra token hay đọc database.
 // Chỉ áp dụng cho API có [EnableRateLimiting(...)], các API khác đi qua bình thường.
 app.UseRateLimiter();
@@ -251,5 +274,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Kênh realtime: client kết nối tới wss://localhost:5257/hubs/game
+app.MapHub<GameHub>(GameHub.Path);
 
 app.Run();

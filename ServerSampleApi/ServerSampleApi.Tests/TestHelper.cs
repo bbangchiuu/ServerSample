@@ -15,7 +15,11 @@ namespace ServerSampleApi.Tests;
 /// Một người chơi vừa đăng ký trong test.
 /// Client đã gắn sẵn header "Authorization: Bearer &lt;token&gt;", gọi API nào cũng là gọi với tư cách người này.
 /// </summary>
-internal record TestPlayer(Guid PlayerId, HttpClient Client);
+internal record TestPlayer(Guid PlayerId, HttpClient Client)
+{
+    /// <summary>Access token đã gắn trong header của Client (dùng khi cần token riêng, ví dụ để kết nối SignalR).</summary>
+    public string AccessToken => Client.DefaultRequestHeaders.Authorization!.Parameter!;
+}
 
 /// <summary>Các hàm dùng chung cho mọi test.</summary>
 internal static class TestHelper
