@@ -80,6 +80,18 @@ public class InventoryItem
     public int quantity;
 }
 
+/// <summary>Tin nhắn chat, server đẩy xuống qua hub (hàm "ReceiveChatMessage"). Giống Hubs/ChatMessage.cs ở server.</summary>
+[Serializable]
+public class ChatMessage
+{
+    public string playerId;
+    public string displayName;
+    public string text;
+
+    /// <summary>Thời điểm server nhận tin (UTC), ví dụ "2026-11-07T08:48:03.123Z".</summary>
+    public string sentAt;
+}
+
 /// <summary>Định dạng lỗi chuẩn mà server trả về cho mọi lỗi 4xx/5xx.</summary>
 [Serializable]
 public class ProblemDetails

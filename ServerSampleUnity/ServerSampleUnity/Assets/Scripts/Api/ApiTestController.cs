@@ -32,9 +32,33 @@ public class ApiTestController : MonoBehaviour
     private bool _busy;
     private readonly List<string> _log = new();
 
+    // Chat realtime qua hub SignalR
+    private const int MaxChatLines = 10;
+    private HubClient _hub = null!;
+    private readonly List<string> _chat = new();
+    private string _chatText = "";
+
     private void Awake()
     {
         _api = new ApiClient(baseUrl);
+
+        // Hub lấy token từ ApiClient lúc kết nối, nên luôn dùng token mới nhất.
+        _hub = new HubClient(baseUrl, () => _api.AccessToken);
+
+        // Hàm SERVER gọi xuống (tên trùng IGameClient.ReceiveChatMessage ở server). Chạy trên main thread.
+        _hub.On<ChatMessage>("ReceiveChatMessage", message =>
+        {
+            DateTime sentAt = DateTime.Parse(message.sentAt, null, System.Globalization.DateTimeStyles.RoundtripKind);
+            AddChatLine($"[{sentAt.ToLocalTime():HH:mm:ss}] {message.displayName}: {message.text}");
+        });
+        _hub.Closed += error => AddChatLine(error == null ? "(Chat disconnected)" : $"(Chat disconnected: {error})");
+    }
+
+    private void OnDestroy()
+    {
+        // Thoát Play Mode trong Editor KHÔNG tự đóng WebSocket: vòng lặp nhận dữ liệu và ping vẫn chạy ngầm.
+        // Phải tự đóng ở đây.
+        _ = _hub.CloseAsync();
     }
 
     // ===== Các hành động =====
@@ -72,10 +96,53 @@ public class ApiTestController : MonoBehaviour
         _playerId = account.playerId;
         AddLog($"Access token expires at {account.accessTokenExpiresAt}, refresh token at {account.refreshTokenExpiresAt} (UTC)");
         RefreshAll();
+        ConnectChat();
+    }
+
+    /// <summary>
+    /// async void: được phép dùng cho hàm "bấm nút / sự kiện" như thế này, nhưng PHẢI tự bắt lỗi bên trong.
+    /// Lỗi lọt ra khỏi async void không có ai bắt, chỉ hiện ra Console.
+    /// </summary>
+    private async void ConnectChat()
+    {
+        try
+        {
+            await _hub.CloseAsync(); // đăng nhập lại tài khoản khác thì đóng kết nối cũ trước
+            await _hub.ConnectAsync();
+            AddChatLine("(Chat connected)");
+        }
+        catch (Exception ex)
+        {
+            AddChatLine($"(Chat connect failed: {ex.Message})");
+        }
+    }
+
+    private async void SendChat()
+    {
+        string text = _chatText;
+        _chatText = "";
+        try
+        {
+            // Gọi GameHub.SendChatMessage trên server. Tin nhắn hiện ra khi server gửi lại qua ReceiveChatMessage,
+            // giống mọi người khác, nên ở đây không tự thêm vào khung chat.
+            await _hub.InvokeAsync("SendChatMessage", text);
+        }
+        catch (Exception ex)
+        {
+            AddChatLine($"(Send failed: {ex.Message})");
+        }
+    }
+
+    private void AddChatLine(string line)
+    {
+        _chat.Add(line);
+        if (_chat.Count > MaxChatLines)
+            _chat.RemoveAt(0);
     }
 
     private void Logout()
     {
+        _ = _hub.CloseAsync();
         // ApiClient quên token và báo server thu hồi refresh token.
         _api.Logout();
         _playerId = "";
@@ -253,6 +320,24 @@ public class ApiTestController : MonoBehaviour
         }
 
         GUI.enabled = true;
+
+        if (_playerId != "")
+        {
+            // Chat không phụ thuộc _busy: đang chờ API khác vẫn chat được.
+            GUILayout.Space(8);
+            GUILayout.Label(_hub.IsConnected ? "Chat (connected):" : "Chat (not connected):");
+            foreach (string line in _chat)
+                GUILayout.Label("   " + line);
+
+            GUILayout.BeginHorizontal();
+            _chatText = GUILayout.TextField(_chatText, 200, GUILayout.Width(400));
+            GUI.enabled = _hub.IsConnected;
+            if (GUILayout.Button("Send")) SendChat();
+            GUI.enabled = !_hub.IsConnected;
+            if (GUILayout.Button("Reconnect")) ConnectChat();
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+        }
 
         GUILayout.Space(8);
         GUILayout.Label(_busy ? "Waiting for server..." : "Log:");
