@@ -39,6 +39,14 @@ public class HubInvocationException : Exception
 public class HubClient
 {
     private const byte RecordSeparator = 0x1E;
+
+    // Loại gói tin (trường "type"), theo đặc tả giao thức SignalR (HubProtocol.md trong repo dotnet/aspnetcore).
+    // Thư viện server có đúng các số này trong class HubProtocolConstants.
+    // Các loại 2, 4, 5 (stream) và 8, 9 (ack/sequence khi kết nối lại) game chưa dùng nên không khai báo.
+    private const int InvocationMessageType = 1; // gọi một hàm: "target" là tên hàm, "arguments" là tham số
+    private const int CompletionMessageType = 3; // hàm đã chạy xong: kèm "result" hoặc "error", cùng invocationId
+    private const int PingMessageType = 6;       // "tôi vẫn còn sống", không có dữ liệu
+    private const int CloseMessageType = 7;      // server đóng kết nối, có thể kèm "error"
     private static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(10);
 
@@ -159,7 +167,7 @@ public class HubClient
 
         var invocation = new ClientInvocation<TArg>
         {
-            type = 1,
+            type = InvocationMessageType,
             invocationId = invocationId,
             target = target,
             arguments = new[] { argument },
@@ -259,7 +267,7 @@ public class HubClient
         HubMessage message = JsonUtility.FromJson<HubMessage>(json);
         switch (message.type)
         {
-            case 1: // Invocation: server gọi một hàm của client
+            case InvocationMessageType: // server gọi một hàm của client
                 if (_handlers.TryGetValue(message.target, out Action<string> handler))
                 {
                     try
@@ -278,7 +286,7 @@ public class HubClient
                 }
                 break;
 
-            case 3: // Completion: hàm client đã gọi trên server chạy xong
+            case CompletionMessageType: // hàm client đã gọi trên server chạy xong
                 if (_pendingInvocations.TryGetValue(message.invocationId, out TaskCompletionSource<bool> completion))
                 {
                     _pendingInvocations.Remove(message.invocationId);
@@ -293,10 +301,10 @@ public class HubClient
                 }
                 break;
 
-            case 6: // Ping từ server: chỉ để giữ kết nối, không cần làm gì
+            case PingMessageType: // ping từ server: chỉ để giữ kết nối, không cần làm gì
                 break;
 
-            case 7: // Close: server chủ động đóng kết nối
+            case CloseMessageType: // server chủ động đóng kết nối
                 OnClosed(string.IsNullOrEmpty(message.error) ? null : message.error);
                 break;
         }
@@ -326,7 +334,7 @@ public class HubClient
             while (!cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(PingInterval, cancellationToken);
-                await SendRecordAsync("{\"type\":6}");
+                await SendRecordAsync($"{{\"type\":{PingMessageType}}}");
             }
         }
         catch (Exception)
