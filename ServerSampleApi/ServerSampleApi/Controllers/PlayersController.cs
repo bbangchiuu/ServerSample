@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ServerSampleApi.Auth;
 using ServerSampleApi.Data;
 using ServerSampleApi.Dtos;
+using ServerSampleApi.Hubs;
 using ServerSampleApi.Models;
 using ServerSampleApi.Services;
 using StackExchange.Redis;
@@ -30,12 +32,21 @@ namespace ServerSampleApi.Controllers
 
         private readonly GameDbContext _db;
         private readonly LeaderboardService _leaderboard;
+        private readonly IHubContext<GameHub, IGameClient> _hub;
         private readonly ILogger<PlayersController> _logger;
 
-        public PlayersController(GameDbContext db, LeaderboardService leaderboard, ILogger<PlayersController> logger)
+        // IHubContext: "cửa" để code BÊN NGOÀI hub (controller, service, BackgroundService...) gửi tin xuống client.
+        // Có Clients.All, Clients.User(...) giống bên trong hub, nhưng không có Context (không có "người đang gọi"
+        // của hub, vì người gọi ở đây là một request HTTP).
+        public PlayersController(
+            GameDbContext db,
+            LeaderboardService leaderboard,
+            IHubContext<GameHub, IGameClient> hub,
+            ILogger<PlayersController> logger)
         {
             _db = db;
             _leaderboard = leaderboard;
+            _hub = hub;
             _logger = logger;
         }
 
@@ -92,7 +103,10 @@ namespace ServerSampleApi.Controllers
             await _db.SaveChangesAsync();
 
             // Trả về profile sau khi sửa, để client cập nhật giao diện mà không cần gọi GET thêm lần nữa.
-            return Ok(ToProfileResponse(player));
+            // Đồng thời đẩy profile mới xuống các thiết bị KHÁC của người này đang mở game.
+            PlayerProfileResponse profile = ToProfileResponse(player);
+            await NotifyProfileChangedAsync(profile);
+            return Ok(profile);
         }
 
         // POST /api/players/me/daily-reward
@@ -162,29 +176,57 @@ namespace ServerSampleApi.Controllers
             PlayerModel player = await _db.Players.AsNoTracking().FirstAsync(p => p.Id == playerId);
 
             // Cập nhật bảng xếp hạng SAU khi PostgreSQL đã commit, bằng số vàng vừa đọc từ PostgreSQL.
-            await UpdateLeaderboardAsync(player);
+            LeaderboardEntry? entry = await UpdateLeaderboardAsync(player);
 
-            return Ok(ToProfileResponse(player));
+            // Mọi thứ đã lưu xong mới báo cho client: báo trước khi commit mà commit thất bại thì client
+            // sẽ thấy số vàng không có thật.
+            PlayerProfileResponse profile = ToProfileResponse(player);
+            await NotifyProfileChangedAsync(profile);
+            if (entry != null)
+            {
+                // Clients.All: mọi người đang online, kể cả chính người vừa nhận thưởng.
+                await _hub.Clients.All.LeaderboardChanged(new LeaderboardEntryResponse
+                {
+                    Rank = entry.Rank,
+                    PlayerId = player.Id,
+                    DisplayName = player.DisplayName,
+                    Gold = entry.Gold,
+                });
+            }
+
+            return Ok(profile);
         }
 
         /// <summary>
-        /// Ghi số vàng của người chơi lên bảng xếp hạng Redis.
+        /// Ghi số vàng của người chơi lên bảng xếp hạng Redis, rồi đọc lại hạng mới (để báo cho mọi người).
+        /// Trả về null nếu Redis lỗi.
         ///
         /// Redis lỗi (chưa bật, rớt mạng...) thì CHỈ ghi log cảnh báo, không trả lỗi cho client:
         /// vàng và potion đã lưu chắc chắn trong PostgreSQL rồi. Nếu trả 500 ở đây, client tưởng nhận thưởng
         /// thất bại và bấm lại, rồi bị báo "hôm nay đã nhận", rất khó hiểu. Bảng xếp hạng chậm cập nhật
         /// một chút vẫn hơn làm hỏng chức năng chính.
         /// </summary>
-        private async Task UpdateLeaderboardAsync(PlayerModel player)
+        private async Task<LeaderboardEntry?> UpdateLeaderboardAsync(PlayerModel player)
         {
             try
             {
                 await _leaderboard.SetGoldAsync(player.Id, player.Gold);
+                return await _leaderboard.GetPlayerAsync(player.Id);
             }
             catch (Exception ex) when (ex is RedisException or RedisTimeoutException)
             {
                 _logger.LogWarning(ex, "Could not update leaderboard for player {PlayerId}", player.Id);
+                return null;
             }
+        }
+
+        /// <summary>
+        /// Đẩy profile mới xuống MỌI kết nối của người chơi này (Clients.User, xem PlayerIdUserIdProvider).
+        /// Người đó không mở kết nối nào thì không có ai nhận, cũng không lỗi gì.
+        /// </summary>
+        private Task NotifyProfileChangedAsync(PlayerProfileResponse profile)
+        {
+            return _hub.Clients.User(profile.Id.ToString()).ProfileChanged(profile);
         }
 
         /// <summary>Chuyển Player (dữ liệu bên trong) thành DTO trả về.</summary>

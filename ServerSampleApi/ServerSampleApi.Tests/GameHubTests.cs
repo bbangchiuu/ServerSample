@@ -81,36 +81,9 @@ public class GameHubTests : IClassFixture<ApiFactory>
         await Assert.ThrowsAsync<HubException>(() => connection.InvokeAsync(nameof(GameHub.SendChatMessage), tooLong));
     }
 
-    private async Task<HubConnection> ConnectAsync(TestPlayer player)
-    {
-        HubConnection connection = CreateConnection(player.AccessToken);
-        await connection.StartAsync();
-        return connection;
-    }
+    private Task<HubConnection> ConnectAsync(TestPlayer player) => TestHelper.ConnectToHubAsync(_factory, player);
 
-    /// <summary>
-    /// Tạo kết nối SignalR tới server ảo của test, chạy bằng WebSocket.
-    /// Token gửi trên URL "?access_token=..." giống trình duyệt và Unity (không đặt được header khi mở WebSocket),
-    /// để thử đúng đoạn OnMessageReceived trong Program.cs.
-    /// </summary>
-    private HubConnection CreateConnection(string? accessToken)
-    {
-        return new HubConnectionBuilder()
-            .WithUrl(new Uri(_factory.Server.BaseAddress, GameHub.Path.TrimStart('/')), options =>
-            {
-                options.Transports = HttpTransportType.WebSockets;
-                options.SkipNegotiation = true;
-                // Server ảo của test không có cổng mạng thật: mở WebSocket qua TestServer thay vì qua mạng.
-                options.WebSocketFactory = async (context, cancellationToken) =>
-                {
-                    Uri url = accessToken == null
-                        ? context.Uri
-                        : new Uri($"{context.Uri}?access_token={Uri.EscapeDataString(accessToken)}");
-                    return await _factory.Server.CreateWebSocketClient().ConnectAsync(url, cancellationToken);
-                };
-            })
-            .Build();
-    }
+    private HubConnection CreateConnection(string? accessToken) => TestHelper.CreateHubConnection(_factory, accessToken);
 
     /// <summary>Đăng ký nghe hàm ReceiveChatMessage, trả về Task hoàn thành khi nhận được tin nhắn đầu tiên.</summary>
     private static Task<ChatMessage> WaitForChatMessageAsync(HubConnection connection)

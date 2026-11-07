@@ -52,6 +52,18 @@ public class ApiTestController : MonoBehaviour
             DateTime sentAt = DateTime.Parse(message.sentAt, null, System.Globalization.DateTimeStyles.RoundtripKind);
             AddChatLine($"[{sentAt.ToLocalTime():HH:mm:ss}] {message.displayName}: {message.text}");
         });
+        // Profile của CHÍNH mình thay đổi ở nơi khác (thiết bị khác nhận thưởng, đổi tên...): cập nhật luôn,
+        // không cần bấm Refresh. Server chỉ gửi cái này cho các kết nối của đúng người chơi này.
+        _hub.On<PlayerProfile>("ProfileChanged", profile =>
+        {
+            _profile = profile;
+            AddLog($"(Pushed) Profile changed: {profile.displayName}, {profile.gold} gold");
+        });
+
+        // Có người (kể cả mình) vừa đổi số vàng trên bảng xếp hạng. Server gửi cho tất cả người đang online.
+        _hub.On<LeaderboardEntry>("LeaderboardChanged", entry =>
+            AddChatLine($"(Leaderboard) {entry.displayName} now has {entry.gold} gold, rank #{entry.rank}"));
+
         _hub.Reconnecting += error => AddChatLine($"(Chat connection lost: {error} Reconnecting...)");
         _hub.Reconnected += () => AddChatLine("(Chat reconnected)");
         _hub.Closed += error => AddChatLine(error == null ? "(Chat disconnected)" : $"(Chat disconnected: {error})");

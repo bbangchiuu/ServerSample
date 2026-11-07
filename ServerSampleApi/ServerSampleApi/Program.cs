@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -177,6 +178,8 @@ builder.Services.AddSignalR(options =>
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);     // server gửi ping
     options.ClientTimeoutInterval = TimeSpan.FromSeconds(30); // chờ client tối đa
 });
+// Kết nối nào thuộc người chơi nào (claim "sub"), để Clients.User(playerId) gửi được cho đúng người.
+builder.Services.AddSingleton<IUserIdProvider, PlayerIdUserIdProvider>();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi(options =>

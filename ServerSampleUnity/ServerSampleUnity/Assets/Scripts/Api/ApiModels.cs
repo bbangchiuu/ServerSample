@@ -80,6 +80,16 @@ public class InventoryItem
     public int quantity;
 }
 
+/// <summary>Một dòng trên bảng xếp hạng. Server đẩy xuống qua hub (hàm "LeaderboardChanged") khi có người đổi số vàng.</summary>
+[Serializable]
+public class LeaderboardEntry
+{
+    public long rank;
+    public string playerId;
+    public string displayName;
+    public long gold;
+}
+
 /// <summary>Tin nhắn chat, server đẩy xuống qua hub (hàm "ReceiveChatMessage"). Giống Hubs/ChatMessage.cs ở server.</summary>
 [Serializable]
 public class ChatMessage

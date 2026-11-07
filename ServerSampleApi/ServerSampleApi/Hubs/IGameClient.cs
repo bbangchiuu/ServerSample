@@ -1,3 +1,5 @@
+using ServerSampleApi.Dtos;
+
 namespace ServerSampleApi.Hubs
 {
     /// <summary>
@@ -13,5 +15,14 @@ namespace ServerSampleApi.Hubs
     public interface IGameClient
     {
         Task ReceiveChatMessage(ChatMessage message);
+
+        /// <summary>
+        /// Profile của CHÍNH người chơi vừa thay đổi (nhận thưởng, đổi tên). Chỉ gửi cho các kết nối của người đó:
+        /// đổi tên trên điện thoại thì máy tính đang mở game cũng thấy tên mới ngay, không cần tải lại.
+        /// </summary>
+        Task ProfileChanged(PlayerProfileResponse profile);
+
+        /// <summary>Một người chơi vừa đổi số vàng trên bảng xếp hạng. Gửi cho TẤT CẢ người đang online.</summary>
+        Task LeaderboardChanged(LeaderboardEntryResponse entry);
     }
 }

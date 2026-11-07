@@ -1,6 +1,8 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -8,6 +10,7 @@ using Microsoft.IdentityModel.Tokens;
 using ServerSampleApi.Auth;
 using ServerSampleApi.Data;
 using ServerSampleApi.Dtos;
+using ServerSampleApi.Hubs;
 
 namespace ServerSampleApi.Tests;
 
@@ -49,6 +52,38 @@ internal static class TestHelper
         // Từ giờ mọi request của client này đều kèm: Authorization: Bearer eyJhbGciOi...
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", account!.AccessToken);
         return new TestPlayer(account.PlayerId, client);
+    }
+
+    /// <summary>
+    /// Tạo kết nối SignalR tới hub /hubs/game của server ảo, chạy bằng WebSocket (chưa mở: gọi StartAsync).
+    /// Token gửi trên URL "?access_token=..." giống trình duyệt (không đặt được header khi mở WebSocket),
+    /// để thử đúng đoạn OnMessageReceived trong Program.cs. accessToken = null: kết nối không có token.
+    /// </summary>
+    public static HubConnection CreateHubConnection(ApiFactory factory, string? accessToken)
+    {
+        return new HubConnectionBuilder()
+            .WithUrl(new Uri(factory.Server.BaseAddress, GameHub.Path.TrimStart('/')), options =>
+            {
+                options.Transports = HttpTransportType.WebSockets;
+                options.SkipNegotiation = true;
+                // Server ảo của test không có cổng mạng thật: mở WebSocket qua TestServer thay vì qua mạng.
+                options.WebSocketFactory = async (context, cancellationToken) =>
+                {
+                    Uri url = accessToken == null
+                        ? context.Uri
+                        : new Uri($"{context.Uri}?access_token={Uri.EscapeDataString(accessToken)}");
+                    return await factory.Server.CreateWebSocketClient().ConnectAsync(url, cancellationToken);
+                };
+            })
+            .Build();
+    }
+
+    /// <summary>Mở kết nối hub bằng token của người chơi (như một thiết bị đang mở game).</summary>
+    public static async Task<HubConnection> ConnectToHubAsync(ApiFactory factory, TestPlayer player)
+    {
+        HubConnection connection = CreateHubConnection(factory, player.AccessToken);
+        await connection.StartAsync();
+        return connection;
     }
 
     /// <summary>Client của người quản trị: mọi request đều kèm header "System-Authorization: &lt;khoá hệ thống của test&gt;".</summary>
