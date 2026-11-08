@@ -85,17 +85,6 @@ public class RealtimeNotificationTests : IClassFixture<ApiFactory>
         Assert.Equal("New Name", onPc.DisplayName);
     }
 
-    /// <summary>Đăng ký nghe một hàm phía client, trả về Task hoàn thành khi nhận được lần đầu (thoả điều kiện nếu có).</summary>
-    private static Task<T> WaitForAsync<T>(HubConnection connection, string methodName, Func<T, bool>? condition = null)
-    {
-        var received = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        connection.On<T>(methodName, value =>
-        {
-            if (condition == null || condition(value))
-            {
-                received.TrySetResult(value);
-            }
-        });
-        return received.Task;
-    }
+    private static Task<T> WaitForAsync<T>(HubConnection connection, string methodName, Func<T, bool>? condition = null) =>
+        TestHelper.WaitForEventAsync(connection, methodName, condition);
 }

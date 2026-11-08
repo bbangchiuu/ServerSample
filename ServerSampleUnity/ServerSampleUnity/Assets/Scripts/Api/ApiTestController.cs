@@ -38,6 +38,9 @@ public class ApiTestController : MonoBehaviour
     private readonly List<string> _chat = new();
     private string _chatText = "";
 
+    // Người chơi đang online: playerId → tên. Tải một lần sau khi kết nối, rồi cập nhật bằng PlayerOnline/PlayerOffline.
+    private readonly Dictionary<string, string> _onlinePlayers = new();
+
     private void Awake()
     {
         _api = new ApiClient(baseUrl);
@@ -64,8 +67,24 @@ public class ApiTestController : MonoBehaviour
         _hub.On<LeaderboardEntry>("LeaderboardChanged", entry =>
             AddChatLine($"(Leaderboard) {entry.displayName} now has {entry.gold} gold, rank #{entry.rank}"));
 
+        _hub.On<OnlinePlayer>("PlayerOnline", player =>
+        {
+            _onlinePlayers[player.playerId] = player.displayName;
+            AddChatLine($"({player.displayName} is online)");
+        });
+        _hub.On<OnlinePlayer>("PlayerOffline", player =>
+        {
+            _onlinePlayers.Remove(player.playerId);
+            AddChatLine($"({player.displayName} went offline)");
+        });
+
         _hub.Reconnecting += error => AddChatLine($"(Chat connection lost: {error} Reconnecting...)");
-        _hub.Reconnected += () => AddChatLine("(Chat reconnected)");
+        _hub.Reconnected += () =>
+        {
+            AddChatLine("(Chat reconnected)");
+            // Trong lúc mất kết nối có thể đã lỡ các sự kiện PlayerOnline/PlayerOffline: tải lại cả danh sách.
+            RefreshOnlinePlayers();
+        };
         _hub.Closed += error => AddChatLine(error == null ? "(Chat disconnected)" : $"(Chat disconnected: {error})");
     }
 
@@ -125,10 +144,30 @@ public class ApiTestController : MonoBehaviour
             await _hub.CloseAsync(); // đăng nhập lại tài khoản khác thì đóng kết nối cũ trước
             await _hub.ConnectAsync();
             AddChatLine("(Chat connected)");
+            RefreshOnlinePlayers();
         }
         catch (Exception ex)
         {
             AddChatLine($"(Chat connect failed: {ex.Message})");
+        }
+    }
+
+    /// <summary>
+    /// Gọi hàm hub GetOnlinePlayers (hàm CÓ giá trị trả về) và thay toàn bộ danh sách online bằng kết quả.
+    /// Gọi SAU khi đã kết nối và đăng ký PlayerOnline/PlayerOffline, để không lỡ ai vào/ra trong lúc chờ kết quả.
+    /// </summary>
+    private async void RefreshOnlinePlayers()
+    {
+        try
+        {
+            OnlinePlayersResponse response = await _hub.InvokeAsync<OnlinePlayersResponse>("GetOnlinePlayers");
+            _onlinePlayers.Clear();
+            foreach (OnlinePlayer player in response.players)
+                _onlinePlayers[player.playerId] = player.displayName;
+        }
+        catch (Exception ex)
+        {
+            AddChatLine($"(Get online players failed: {ex.Message})");
         }
     }
 
@@ -158,6 +197,7 @@ public class ApiTestController : MonoBehaviour
     private void Logout()
     {
         _ = _hub.CloseAsync();
+        _onlinePlayers.Clear();
         // ApiClient quên token và báo server thu hồi refresh token.
         _api.Logout();
         _playerId = "";
@@ -340,6 +380,7 @@ public class ApiTestController : MonoBehaviour
         {
             // Chat không phụ thuộc _busy: đang chờ API khác vẫn chat được.
             GUILayout.Space(8);
+            GUILayout.Label($"Online ({_onlinePlayers.Count}): {string.Join(", ", _onlinePlayers.Values)}");
             GUILayout.Label($"Chat ({_hub.State}):");
             foreach (string line in _chat)
                 GUILayout.Label("   " + line);
@@ -370,7 +411,7 @@ public class ApiTestController : MonoBehaviour
 
     private void Update()
     {
-        if (Input.GetKeyDown(KeyCode.Space))
+        /*if (Input.GetKeyDown(KeyCode.Space))
         {
             for(int i = 0; i < 20; i++)
             {
@@ -410,7 +451,7 @@ public class ApiTestController : MonoBehaviour
             {
                 ClaimDailyReward();
             }
-        }
+        }*/
     }
 
     private void OnTestUserReady(ApiClient client, AccountResponse account, string actionName)

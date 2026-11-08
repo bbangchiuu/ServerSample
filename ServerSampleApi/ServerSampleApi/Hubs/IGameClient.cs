@@ -24,5 +24,11 @@ namespace ServerSampleApi.Hubs
 
         /// <summary>Một người chơi vừa đổi số vàng trên bảng xếp hạng. Gửi cho TẤT CẢ người đang online.</summary>
         Task LeaderboardChanged(LeaderboardEntryResponse entry);
+
+        /// <summary>Một người chơi vừa online (mở kết nối ĐẦU TIÊN). Gửi cho mọi người khác.</summary>
+        Task PlayerOnline(OnlinePlayer player);
+
+        /// <summary>Một người chơi vừa offline (đóng kết nối CUỐI CÙNG). Gửi cho mọi người khác.</summary>
+        Task PlayerOffline(OnlinePlayer player);
     }
 }

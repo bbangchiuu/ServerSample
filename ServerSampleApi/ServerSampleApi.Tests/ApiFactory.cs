@@ -30,6 +30,8 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     // cho bảng xếp hạng, không đụng vào key "leaderboard:gold" thật.
     public string LeaderboardKey => $"test:{_databaseName}:leaderboard:gold";
 
+    public string PresenceKey => $"test:{_databaseName}:presence:online";
+
     /// <summary>
     /// Khoá ký JWT chỉ dùng cho test. Không lấy khoá trong User Secrets, vì User Secrets chỉ có trên máy bạn:
     /// máy khác (hoặc server CI chạy test tự động) không có thì test sẽ hỏng.
@@ -44,6 +46,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         // Ghi đè chuỗi kết nối "GameDb" trong appsettings.Development.json, chỉ trong server ảo của test.
         builder.UseSetting("ConnectionStrings:GameDb", ConnectionString);
         builder.UseSetting("Leaderboard:RedisKey", LeaderboardKey);
+        builder.UseSetting("Presence:RedisKey", PresenceKey);
 
         // Không tự dựng lại bảng xếp hạng lúc khởi động: khi đó database test chưa chạy migration.
         builder.UseSetting("Leaderboard:RebuildOnStartup", "false");
@@ -79,6 +82,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
             IConnectionMultiplexer redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
             await redis.GetDatabase().KeyDeleteAsync(LeaderboardKey); // DEL test:...:leaderboard:gold
+            await redis.GetDatabase().KeyDeleteAsync(PresenceKey);
         }
 
         await base.DisposeAsync();

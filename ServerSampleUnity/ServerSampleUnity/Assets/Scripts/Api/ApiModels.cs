@@ -90,6 +90,21 @@ public class LeaderboardEntry
     public long gold;
 }
 
+/// <summary>Một người chơi đang online. Server đẩy xuống qua hub ("PlayerOnline", "PlayerOffline").</summary>
+[Serializable]
+public class OnlinePlayer
+{
+    public string playerId;
+    public string displayName;
+}
+
+/// <summary>Kết quả của hàm hub "GetOnlinePlayers": {"players":[...]}.</summary>
+[Serializable]
+public class OnlinePlayersResponse
+{
+    public List<OnlinePlayer> players;
+}
+
 /// <summary>Tin nhắn chat, server đẩy xuống qua hub (hàm "ReceiveChatMessage"). Giống Hubs/ChatMessage.cs ở server.</summary>
 [Serializable]
 public class ChatMessage

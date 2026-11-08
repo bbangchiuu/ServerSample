@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ServerSampleApi.Auth;
 using ServerSampleApi.Data;
+using ServerSampleApi.Services;
+using StackExchange.Redis;
 
 namespace ServerSampleApi.Hubs
 {
@@ -29,12 +31,17 @@ namespace ServerSampleApi.Hubs
 
         private const string DisplayNameKey = "DisplayName";
 
+        /// <summary>Đánh dấu kết nối này ĐÃ được cộng vào bộ đếm online, để lúc ngắt kết nối chỉ trừ khi đã cộng.</summary>
+        private const string CountedOnlineKey = "CountedOnline";
+
         private readonly GameDbContext _db;
+        private readonly PresenceService _presence;
         private readonly ILogger<GameHub> _logger;
 
-        public GameHub(GameDbContext db, ILogger<GameHub> logger)
+        public GameHub(GameDbContext db, PresenceService presence, ILogger<GameHub> logger)
         {
             _db = db;
+            _presence = presence;
             _logger = logger;
         }
 
@@ -59,14 +66,76 @@ namespace ServerSampleApi.Hubs
 
             Context.Items[DisplayNameKey] = displayName;
             _logger.LogInformation("Player {PlayerId} connected ({ConnectionId})", playerId, Context.ConnectionId);
+
+            try
+            {
+                bool cameOnline = await _presence.AddConnectionAsync(playerId);
+                Context.Items[CountedOnlineKey] = true;
+                if (cameOnline)
+                {
+                    // Clients.Others: mọi kết nối TRỪ kết nối vừa mở (chính người này không cần được báo "bạn vừa online").
+                    await Clients.Others.PlayerOnline(new OnlinePlayer { PlayerId = playerId, DisplayName = displayName });
+                }
+            }
+            catch (Exception ex) when (ex is RedisException or RedisTimeoutException)
+            {
+                // Redis lỗi thì danh sách online sai một chút, nhưng chat vẫn phải dùng được: chỉ ghi cảnh báo.
+                _logger.LogWarning(ex, "Could not update presence for player {PlayerId}", playerId);
+            }
+
             await base.OnConnectedAsync();
         }
 
-        /// <summary>Chạy khi kết nối đóng: client tự ngắt, mất mạng, tắt game...</summary>
-        public override Task OnDisconnectedAsync(Exception? exception)
+        /// <summary>
+        /// Chạy khi kết nối đóng: client tự ngắt, mất mạng, tắt game...
+        /// Chạy CẢ khi OnConnectedAsync đã Abort giữa chừng, nên chỉ trừ bộ đếm nếu lúc kết nối đã cộng:
+        /// trừ khi chưa cộng thì bộ đếm của người đó bị lệch, có thể thành âm.
+        /// </summary>
+        public override async Task OnDisconnectedAsync(Exception? exception)
         {
             _logger.LogInformation("Connection {ConnectionId} disconnected", Context.ConnectionId);
-            return base.OnDisconnectedAsync(exception);
+
+            if (Context.Items.ContainsKey(CountedOnlineKey))
+            {
+                Guid playerId = Context.User!.GetPlayerId();
+                try
+                {
+                    bool wentOffline = await _presence.RemoveConnectionAsync(playerId);
+                    if (wentOffline)
+                    {
+                        await Clients.Others.PlayerOffline(new OnlinePlayer
+                        {
+                            PlayerId = playerId,
+                            DisplayName = (string)Context.Items[DisplayNameKey]!,
+                        });
+                    }
+                }
+                catch (Exception ex) when (ex is RedisException or RedisTimeoutException)
+                {
+                    _logger.LogWarning(ex, "Could not update presence for player {PlayerId}", playerId);
+                }
+            }
+
+            await base.OnDisconnectedAsync(exception);
+        }
+
+        /// <summary>
+        /// Client gọi: lấy danh sách người đang online (gọi một lần sau khi kết nối, rồi cập nhật bằng
+        /// PlayerOnline/PlayerOffline). Hàm của hub CÓ GIÁ TRỊ TRẢ VỀ: kết quả nằm trong gói Completion (type 3),
+        /// trường "result", giống response của HTTP nhưng đi qua kết nối WebSocket sẵn có.
+        /// </summary>
+        public async Task<OnlinePlayersResponse> GetOnlinePlayers()
+        {
+            List<Guid> playerIds = await _presence.GetOnlinePlayerIdsAsync();
+
+            // Tên hiển thị đọc từ PostgreSQL bằng MỘT câu SQL (WHERE "Id" IN (...)), giống bảng xếp hạng.
+            List<OnlinePlayer> players = await _db.Players
+                .Where(p => playerIds.Contains(p.Id))
+                .OrderBy(p => p.DisplayName)
+                .Select(p => new OnlinePlayer { PlayerId = p.Id, DisplayName = p.DisplayName })
+                .ToListAsync();
+
+            return new OnlinePlayersResponse { Players = players };
         }
 
         /// <summary>

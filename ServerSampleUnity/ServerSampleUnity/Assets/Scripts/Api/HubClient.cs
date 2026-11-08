@@ -86,8 +86,11 @@ public class HubClient
     /// <summary>Hàm nào server gọi xuống thì chạy handler nào. Key là tên hàm, ví dụ "ReceiveChatMessage".</summary>
     private readonly Dictionary<string, Action<string>> _handlers = new();
 
-    /// <summary>Các lần gọi hàm server đang chờ kết quả (gói type 3). Key là invocationId.</summary>
-    private readonly Dictionary<string, TaskCompletionSource<bool>> _pendingInvocations = new();
+    /// <summary>
+    /// Các lần gọi hàm server đang chờ kết quả (gói type 3). Key là invocationId.
+    /// Giá trị khi hoàn thành là nguyên JSON của gói Completion (để đọc "result").
+    /// </summary>
+    private readonly Dictionary<string, TaskCompletionSource<string>> _pendingInvocations = new();
 
     /// <summary>
     /// ClientWebSocket chỉ cho MỘT lệnh SendAsync chạy tại một thời điểm. Vòng lặp ping và InvokeAsync có thể
@@ -177,10 +180,31 @@ public class HubClient
     }
 
     /// <summary>
-    /// Gọi một hàm trên server với một tham số, chờ tới khi server chạy xong hàm đó.
+    /// Gọi một hàm trên server với một tham số, chờ tới khi server chạy xong hàm đó. Bỏ qua giá trị trả về (nếu có).
     /// Server ném HubException thì ở đây ném HubInvocationException với đúng thông báo đó.
     /// </summary>
     public async Task InvokeAsync<TArg>(string target, TArg argument)
+    {
+        await SendInvocationAsync(target, new[] { argument });
+    }
+
+    /// <summary>
+    /// Gọi một hàm KHÔNG có tham số trên server và lấy GIÁ TRỊ TRẢ VỀ của nó, ví dụ:
+    ///     OnlinePlayersResponse list = await hub.InvokeAsync&lt;OnlinePlayersResponse&gt;("GetOnlinePlayers");
+    /// Server trả {"type":3,"invocationId":"5","result":{...}}: phần "result" được đọc thành TResult.
+    /// TResult phải là một class [Serializable] (JsonUtility không đọc được JSON mà gốc là mảng hay số).
+    /// </summary>
+    public async Task<TResult> InvokeAsync<TResult>(string target)
+    {
+        string completionJson = await SendInvocationAsync(target, Array.Empty<string>());
+        return JsonUtility.FromJson<CompletionResult<TResult>>(completionJson).result;
+    }
+
+    /// <summary>
+    /// Gửi gói Invocation (type 1) kèm một invocationId mới, rồi chờ gói Completion (type 3) có CÙNG invocationId.
+    /// Trả về nguyên JSON của gói Completion để nơi gọi tự đọc "result" nếu cần.
+    /// </summary>
+    private async Task<string> SendInvocationAsync<TArg>(string target, TArg[] arguments)
     {
         if (!IsConnected)
         {
@@ -188,7 +212,7 @@ public class HubClient
         }
 
         string invocationId = (++_nextInvocationId).ToString();
-        var completion = new TaskCompletionSource<bool>();
+        var completion = new TaskCompletionSource<string>();
         _pendingInvocations[invocationId] = completion;
 
         var invocation = new ClientInvocation<TArg>
@@ -196,12 +220,12 @@ public class HubClient
             type = InvocationMessageType,
             invocationId = invocationId,
             target = target,
-            arguments = new[] { argument },
+            arguments = arguments,
         };
         await SendRecordAsync(JsonUtility.ToJson(invocation));
 
         // Chờ gói type 3 có cùng invocationId (xử lý trong HandleRecord). Lỗi thì completion ném exception.
-        await completion.Task;
+        return await completion.Task;
     }
 
     /// <summary>Đóng kết nối và DỪNG tự kết nối lại (đăng xuất, tắt game...).</summary>
@@ -457,12 +481,12 @@ public class HubClient
                 break;
 
             case CompletionMessageType: // hàm client đã gọi trên server chạy xong
-                if (_pendingInvocations.TryGetValue(message.invocationId, out TaskCompletionSource<bool> completion))
+                if (_pendingInvocations.TryGetValue(message.invocationId, out TaskCompletionSource<string> completion))
                 {
                     _pendingInvocations.Remove(message.invocationId);
                     if (string.IsNullOrEmpty(message.error))
                     {
-                        completion.TrySetResult(true);
+                        completion.TrySetResult(json);
                     }
                     else
                     {
@@ -563,7 +587,7 @@ public class HubClient
         _handshake?.TrySetResult("Connection closed.");
 
         // Các lần gọi đang chờ kết quả sẽ không bao giờ có kết quả nữa: báo lỗi để chúng không treo mãi.
-        foreach (TaskCompletionSource<bool> completion in _pendingInvocations.Values)
+        foreach (TaskCompletionSource<string> completion in _pendingInvocations.Values)
         {
             completion.TrySetException(new InvalidOperationException("Connection closed."));
         }
@@ -595,6 +619,13 @@ public class HubClient
     private class ServerInvocation<T>
     {
         public T[] arguments = Array.Empty<T>();
+    }
+
+    /// <summary>Gói Completion có giá trị trả về: {"type":3,"invocationId":"5","result":{...}}</summary>
+    [Serializable]
+    private class CompletionResult<T>
+    {
+        public T result = default!;
     }
 
     [Serializable]

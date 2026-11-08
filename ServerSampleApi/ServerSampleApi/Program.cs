@@ -180,6 +180,8 @@ builder.Services.AddSignalR(options =>
 });
 // Kết nối nào thuộc người chơi nào (claim "sub"), để Clients.User(playerId) gửi được cho đúng người.
 builder.Services.AddSingleton<IUserIdProvider, PlayerIdUserIdProvider>();
+// Ai đang online (Redis). Singleton vì chỉ dùng kết nối Redis, không dùng GameDbContext.
+builder.Services.AddSingleton<PresenceService>();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi(options =>

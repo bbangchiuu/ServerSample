@@ -86,6 +86,23 @@ internal static class TestHelper
         return connection;
     }
 
+    /// <summary>
+    /// Đăng ký nghe một hàm phía client (ví dụ "ProfileChanged"), trả về Task hoàn thành khi nhận được lần đầu
+    /// (thoả điều kiện, nếu có). Phải gọi TRƯỚC hành động gây ra sự kiện, nếu không có thể lỡ mất.
+    /// </summary>
+    public static Task<T> WaitForEventAsync<T>(HubConnection connection, string methodName, Func<T, bool>? condition = null)
+    {
+        var received = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        connection.On<T>(methodName, value =>
+        {
+            if (condition == null || condition(value))
+            {
+                received.TrySetResult(value);
+            }
+        });
+        return received.Task;
+    }
+
     /// <summary>Client của người quản trị: mọi request đều kèm header "System-Authorization: &lt;khoá hệ thống của test&gt;".</summary>
     public static HttpClient CreateSystemClient(ApiFactory factory)
     {
