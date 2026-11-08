@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -30,7 +31,8 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     // cho bảng xếp hạng, không đụng vào key "leaderboard:gold" thật.
     public string LeaderboardKey => $"test:{_databaseName}:leaderboard:gold";
 
-    public string PresenceKey => $"test:{_databaseName}:presence:online";
+    /// <summary>Prefix các key danh sách online của lớp test này: ...:players, ...:servers, ...:server:{id}.</summary>
+    public string PresenceKeyPrefix => $"test:{_databaseName}:presence";
 
     /// <summary>
     /// Khoá ký JWT chỉ dùng cho test. Không lấy khoá trong User Secrets, vì User Secrets chỉ có trên máy bạn:
@@ -46,7 +48,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         // Ghi đè chuỗi kết nối "GameDb" trong appsettings.Development.json, chỉ trong server ảo của test.
         builder.UseSetting("ConnectionStrings:GameDb", ConnectionString);
         builder.UseSetting("Leaderboard:RedisKey", LeaderboardKey);
-        builder.UseSetting("Presence:RedisKey", PresenceKey);
+        builder.UseSetting("Presence:RedisKeyPrefix", PresenceKeyPrefix);
 
         // Không tự dựng lại bảng xếp hạng lúc khởi động: khi đó database test chưa chạy migration.
         builder.UseSetting("Leaderboard:RebuildOnStartup", "false");
@@ -82,7 +84,13 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
             IConnectionMultiplexer redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
             await redis.GetDatabase().KeyDeleteAsync(LeaderboardKey); // DEL test:...:leaderboard:gold
-            await redis.GetDatabase().KeyDeleteAsync(PresenceKey);
+            // Xoá mọi key bắt đầu bằng prefix của lớp test này (KEYS chỉ dùng cho test, không dùng ở server thật:
+            // nó quét toàn bộ Redis và chặn mọi lệnh khác trong lúc quét).
+            foreach (EndPoint endpoint in redis.GetEndPoints())
+            {
+                RedisKey[] keys = redis.GetServer(endpoint).Keys(pattern: PresenceKeyPrefix + ":*").ToArray();
+                await redis.GetDatabase().KeyDeleteAsync(keys);
+            }
         }
 
         await base.DisposeAsync();
