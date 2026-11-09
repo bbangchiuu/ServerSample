@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -59,7 +60,7 @@ internal static class TestHelper
     /// Token gửi trên URL "?access_token=..." giống trình duyệt (không đặt được header khi mở WebSocket),
     /// để thử đúng đoạn OnMessageReceived trong Program.cs. accessToken = null: kết nối không có token.
     /// </summary>
-    public static HubConnection CreateHubConnection(ApiFactory factory, string? accessToken)
+    public static HubConnection CreateHubConnection(WebApplicationFactory<Program> factory, string? accessToken)
     {
         return new HubConnectionBuilder()
             .WithUrl(new Uri(factory.Server.BaseAddress, GameHub.Path.TrimStart('/')), options =>
@@ -78,8 +79,11 @@ internal static class TestHelper
             .Build();
     }
 
-    /// <summary>Mở kết nối hub bằng token của người chơi (như một thiết bị đang mở game).</summary>
-    public static async Task<HubConnection> ConnectToHubAsync(ApiFactory factory, TestPlayer player)
+    /// <summary>
+    /// Mở kết nối hub bằng token của người chơi (như một thiết bị đang mở game).
+    /// factory là server muốn nối vào: ApiFactory, hoặc một server thứ hai tạo bằng WithWebHostBuilder.
+    /// </summary>
+    public static async Task<HubConnection> ConnectToHubAsync(WebApplicationFactory<Program> factory, TestPlayer player)
     {
         HubConnection connection = CreateHubConnection(factory, player.AccessToken);
         await connection.StartAsync();

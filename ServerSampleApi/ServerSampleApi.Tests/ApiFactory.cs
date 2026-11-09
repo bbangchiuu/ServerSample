@@ -49,6 +49,8 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("ConnectionStrings:GameDb", ConnectionString);
         builder.UseSetting("Leaderboard:RedisKey", LeaderboardKey);
         builder.UseSetting("Presence:RedisKeyPrefix", PresenceKeyPrefix);
+        // Kênh backplane riêng: Clients.All của lớp test này không gửi sang server ảo của lớp test khác.
+        builder.UseSetting("SignalR:RedisChannelPrefix", $"test:{_databaseName}");
 
         // Không tự dựng lại bảng xếp hạng lúc khởi động: khi đó database test chưa chạy migration.
         builder.UseSetting("Leaderboard:RebuildOnStartup", "false");

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR.StackExchangeRedis;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -172,12 +173,29 @@ builder.Services.AddScoped<LeaderboardService>();
 // Redis chưa có bảng xếp hạng thì dựng lại từ PostgreSQL, chạy NGẦM khi server khởi động (không làm server chờ).
 builder.Services.AddHostedService<LeaderboardStartupRebuildService>();
 
-// SignalR (realtime): có sẵn trong ASP.NET Core, không cần cài package. Hub nằm trong thư mục Hubs.
+// SignalR (realtime): có sẵn trong ASP.NET Core. Hub nằm trong thư mục Hubs.
 builder.Services.AddSignalR(options =>
 {
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);     // server gửi ping
     options.ClientTimeoutInterval = TimeSpan.FromSeconds(30); // chờ client tối đa
-});
+})
+    // Redis backplane (package Microsoft.AspNetCore.SignalR.StackExchangeRedis): cho phép chạy NHIỀU server.
+    // Không có nó, mỗi server chỉ biết các kết nối của CHÍNH nó: Clients.All trên server 1 không tới được
+    // người chơi đang nối vào server 2. Có nó, mỗi lần gửi (Clients.All, Clients.User...) server còn đăng tin lên
+    // Redis (PUBLISH), mọi server đều nghe (SUBSCRIBE) và gửi tiếp cho các kết nối của mình.
+    .AddStackExchangeRedis();
+
+// Cấu hình backplane bằng Options pattern để đọc cấu hình LÚC CHẠY (test ghi đè được, giống JwtBearerOptions).
+builder.Services.AddOptions<RedisOptions>()
+    .Configure<IConfiguration>((options, configuration) =>
+    {
+        // Dùng chung Redis với bảng xếp hạng và danh sách online (chuỗi kết nối "Redis").
+        options.Configuration = ConfigurationOptions.Parse(configuration.GetConnectionString("Redis")!);
+
+        // Prefix của các kênh PUBLISH/SUBSCRIBE: các server cùng một game phải dùng CÙNG prefix mới nghe thấy nhau.
+        // Test đặt prefix riêng cho từng server ảo, để tin của lớp test này không lọt sang lớp test khác.
+        options.Configuration.ChannelPrefix = RedisChannel.Literal(configuration["SignalR:RedisChannelPrefix"] ?? "ServerSample");
+    });
 // Kết nối nào thuộc người chơi nào (claim "sub"), để Clients.User(playerId) gửi được cho đúng người.
 builder.Services.AddSingleton<IUserIdProvider, PlayerIdUserIdProvider>();
 // Ai đang online (Redis). Singleton vì chỉ dùng kết nối Redis, không dùng GameDbContext,
