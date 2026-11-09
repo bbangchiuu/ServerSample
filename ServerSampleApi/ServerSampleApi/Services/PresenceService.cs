@@ -98,8 +98,13 @@ namespace ServerSampleApi.Services
 
             // Test dùng prefix riêng để không đụng danh sách online thật (giống Leaderboard:RedisKey).
             string prefix = configuration["Presence:RedisKeyPrefix"] ?? "presence";
+            //presence:players: tổng của mọi server, dùng để trả lời “ai online”.
             _playersKey = $"{prefix}:players";
+            //presence:servers: sổ điểm danh, dùng để biết server nào đã chết.
+            //Dictionary<string, long> servers;
             _serversKey = $"{prefix}:servers";
+            //presence:server:{id}: chi tiết từng server, dùng khi server chết để biết phải trừ những ai khỏi tổng.
+            //Dictionary<string, Dictionary<Guid, int>> serverPlayers; // serverId → (playerId → số kết nối)
             _serverKeyPrefix = $"{prefix}:server:";
         }
 
