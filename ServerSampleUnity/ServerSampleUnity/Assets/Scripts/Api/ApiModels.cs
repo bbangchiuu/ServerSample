@@ -163,20 +163,6 @@ public class ClanSummary
     public int maxMembers;
 }
 
-/// <summary>
-/// Có người vào / rời clan. Server đẩy xuống qua hub ("ClanMemberJoined", "ClanMemberLeft").
-/// leaderId và memberCount là giá trị SAU thay đổi. leaderId null/rỗng = clan đã bị xoá (người cuối cùng vừa rời).
-/// </summary>
-[Serializable]
-public class ClanMemberEvent
-{
-    public string clanId;
-    public string playerId;
-    public string displayName;
-    public string leaderId;
-    public int memberCount;
-}
-
 /// <summary>Định dạng lỗi chuẩn mà server trả về cho mọi lỗi 4xx/5xx.</summary>
 [Serializable]
 public class ProblemDetails

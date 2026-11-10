@@ -20,6 +20,13 @@ public partial class SignalRLibraryTest : MonoBehaviour
     [SerializeField] private string username = "bang";
     [SerializeField] private string password = "secret123";
 
+    /// <summary>
+    /// Bật: tin nhắn hub dùng MessagePack (nhị phân). Tắt: JSON. Server hỗ trợ cả hai, nên hai client khác giao thức
+    /// vẫn chat được với nhau. Chỉ ảnh hưởng kết nối hub; các API HTTP (ApiClient) luôn là JSON.
+    /// Đổi trong Inspector rồi bấm Login + Connect lại (giao thức được chọn lúc tạo kết nối).
+    /// </summary>
+    [SerializeField] private bool useMessagePack = true;
+
     private const int MaxLines = 15;
 
     private ApiClient _api = null!;
@@ -70,7 +77,7 @@ public partial class SignalRLibraryTest : MonoBehaviour
             await _connection.DisposeAsync();
         }
 
-        _connection = new HubConnectionBuilder()
+        IHubConnectionBuilder builder = new HubConnectionBuilder()
             .WithUrl(baseUrl.TrimEnd('/') + "/hubs/game", options =>
             {
                 // Mỗi lần kết nối (kể cả tự kết nối lại), thư viện xin một token còn hạn, giống HubClient.
@@ -78,23 +85,31 @@ public partial class SignalRLibraryTest : MonoBehaviour
                 // Đi thẳng WebSocket, bỏ bước negotiate (POST /hubs/game/negotiate), giống HubClient tự viết.
                 options.Transports = HttpTransportType.WebSockets;
                 options.SkipNegotiation = true;
-            })
-            // Model trong ApiModels.cs dùng FIELD public (vì JsonUtility), còn System.Text.Json mặc định
-            // chỉ đọc/ghi PROPERTY. Không bật IncludeFields thì mọi field đều null/0.
-            .AddJsonProtocol(options => options.PayloadSerializerOptions.IncludeFields = true)
+            });
+
+        // Mặc định thư viện dùng JSON. Thêm MessagePack thì kết nối NÀY dùng MessagePack: handshake gửi
+        // {"protocol":"messagepack","version":1}, sau đó mọi tin là binary frame.
+        // (Package Microsoft.AspNetCore.SignalR.Protocols.MessagePack, cài qua NuGetForUnity.)
+        if (useMessagePack)
+        {
+            builder.AddMessagePackProtocol();
+        }
+
+        _connection = builder
             // Mất kết nối thì tự thử lại sau 0s, 2s, 10s, 30s rồi bỏ cuộc (đúng dãy HubClient tự viết đã học theo).
             .WithAutomaticReconnect()
             .Build();
 
         // Các hàm SERVER gọi xuống: tên trùng IGameClient ở server.
-        _connection.On<ChatMessage>("ReceiveChatMessage", message =>
-            RunOnMainThread(() => AddLine($"{message.displayName}: {message.text}")));
-        _connection.On<OnlinePlayer>("PlayerOnline", player =>
-            RunOnMainThread(() => AddLine($"({player.displayName} is online)")));
-        _connection.On<OnlinePlayer>("PlayerOffline", player =>
-            RunOnMainThread(() => AddLine($"({player.displayName} went offline)")));
-        _connection.On<PlayerProfile>("ProfileChanged", profile =>
-            RunOnMainThread(() => AddLine($"(Pushed) Profile: {profile.displayName}, {profile.gold} gold")));
+        // Dùng các class trong HubModels.cs (property PascalCase), đọc được cả JSON lẫn MessagePack.
+        _connection.On<HubChatMessage>("ReceiveChatMessage", message =>
+            RunOnMainThread(() => AddLine($"[{message.SentAt.ToLocalTime():HH:mm:ss}] {message.DisplayName}: {message.Text}")));
+        _connection.On<HubOnlinePlayer>("PlayerOnline", player =>
+            RunOnMainThread(() => AddLine($"({player.DisplayName} is online)")));
+        _connection.On<HubOnlinePlayer>("PlayerOffline", player =>
+            RunOnMainThread(() => AddLine($"({player.DisplayName} went offline)")));
+        _connection.On<HubPlayerProfile>("ProfileChanged", profile =>
+            RunOnMainThread(() => AddLine($"(Pushed) Profile: {profile.DisplayName}, {profile.Gold} gold")));
 
         // Mỗi lần Connect tạo một HubConnection MỚI, nên phải đăng ký lại các hàm của clan cho kết nối mới này.
         RegisterClanHandlers(_connection);
@@ -126,11 +141,11 @@ public partial class SignalRLibraryTest : MonoBehaviour
         {
             await _connection.StartAsync();
             // Sau await này đã quay về main thread: await trong MonoBehaviour tự quay về UnitySynchronizationContext.
-            AddLine("Connected");
+            AddLine($"Connected ({(useMessagePack ? "MessagePack" : "JSON")})");
 
             // Hàm hub CÓ giá trị trả về: InvokeAsync<T> chờ Completion từ server.
-            OnlinePlayersResponse online = await _connection.InvokeAsync<OnlinePlayersResponse>("GetOnlinePlayers");
-            AddLine($"Online: {online.players.Count} player(s)");
+            HubOnlinePlayersResponse online = await _connection.InvokeAsync<HubOnlinePlayersResponse>("GetOnlinePlayers");
+            AddLine($"Online: {online.Players.Count} player(s)");
         }
         catch (Exception e)
         {
@@ -177,7 +192,7 @@ public partial class SignalRLibraryTest : MonoBehaviour
     private void OnGUI()
     {
         GUILayout.BeginArea(new Rect(10, 10, 500, 600));
-        GUILayout.Label($"Server: {baseUrl}   State: {_connection?.State.ToString() ?? "-"}");
+        GUILayout.Label($"Server: {baseUrl}   State: {_connection?.State.ToString() ?? "-"}   Protocol: {(useMessagePack ? "MessagePack" : "JSON")}");
         if (GUILayout.Button("Login + Connect"))
         {
             Login();

@@ -32,16 +32,16 @@ public partial class SignalRLibraryTest
     /// </summary>
     private void RegisterClanHandlers(HubConnection connection)
     {
-        connection.On<ChatMessage>("ReceiveClanChatMessage", message =>
-            RunOnMainThread(() => AddClanChatLine($"{message.displayName}: {message.text}")));
+        connection.On<HubChatMessage>("ReceiveClanChatMessage", message =>
+            RunOnMainThread(() => AddClanChatLine($"{message.DisplayName}: {message.Text}")));
 
-        connection.On<ClanMemberEvent>("ClanMemberJoined", e => RunOnMainThread(() => OnClanMemberJoined(e)));
-        connection.On<ClanMemberEvent>("ClanMemberLeft", e => RunOnMainThread(() => OnClanMemberLeft(e)));
+        connection.On<HubClanMemberEvent>("ClanMemberJoined", e => RunOnMainThread(() => OnClanMemberJoined(e)));
+        connection.On<HubClanMemberEvent>("ClanMemberLeft", e => RunOnMainThread(() => OnClanMemberLeft(e)));
     }
 
-    private void OnClanMemberJoined(ClanMemberEvent e)
+    private void OnClanMemberJoined(HubClanMemberEvent e)
     {
-        if (e.playerId == _playerId)
+        if (e.PlayerId == _playerId)
         {
             // Chính mình vừa vào/tạo clan, có thể là trên THIẾT BỊ KHÁC: tải cả clan
             // (sự kiện không kèm danh sách thành viên).
@@ -49,7 +49,7 @@ public partial class SignalRLibraryTest
             return;
         }
 
-        if (_clan == null || e.clanId != _clan.id)
+        if (_clan == null || e.ClanId != _clan.id)
         {
             return;
         }
@@ -57,17 +57,17 @@ public partial class SignalRLibraryTest
         // Người khác vào clan của mình: tự thêm vào danh sách, không cần gọi lại API.
         _clan.members.Add(new ClanMember
         {
-            playerId = e.playerId,
-            displayName = e.displayName,
+            playerId = e.PlayerId,
+            displayName = e.DisplayName,
             joinedAt = DateTime.UtcNow.ToString("o"),
         });
         ApplyClanChange(e);
-        AddClanChatLine($"({e.displayName} joined the clan)");
+        AddClanChatLine($"({e.DisplayName} joined the clan)");
     }
 
-    private void OnClanMemberLeft(ClanMemberEvent e)
+    private void OnClanMemberLeft(HubClanMemberEvent e)
     {
-        if (e.playerId == _playerId)
+        if (e.PlayerId == _playerId)
         {
             // Chính mình vừa rời clan (có thể trên thiết bị khác).
             if (_clan != null)
@@ -79,15 +79,15 @@ public partial class SignalRLibraryTest
             return;
         }
 
-        if (_clan == null || e.clanId != _clan.id)
+        if (_clan == null || e.ClanId != _clan.id)
         {
             return;
         }
 
-        _clan.members.RemoveAll(m => m.playerId == e.playerId);
+        _clan.members.RemoveAll(m => m.playerId == e.PlayerId);
         string oldLeaderId = _clan.leaderId;
         ApplyClanChange(e);
-        AddClanChatLine($"({e.displayName} left the clan)");
+        AddClanChatLine($"({e.DisplayName} left the clan)");
         if (_clan.leaderId != oldLeaderId)
         {
             ClanMember? leader = _clan.members.Find(m => m.playerId == _clan.leaderId);
@@ -96,13 +96,14 @@ public partial class SignalRLibraryTest
     }
 
     /// <summary>Cập nhật chủ clan và số thành viên theo sự kiện (server gửi kèm giá trị SAU thay đổi).</summary>
-    private void ApplyClanChange(ClanMemberEvent e)
+    private void ApplyClanChange(HubClanMemberEvent e)
     {
-        _clan!.leaderId = e.leaderId;
-        _clan.memberCount = e.memberCount;
+        // Chỉ được gọi khi clan còn người (LeaderId khác null).
+        _clan!.leaderId = e.LeaderId ?? "";
+        _clan.memberCount = e.MemberCount;
         foreach (ClanMember member in _clan.members)
         {
-            member.isLeader = member.playerId == e.leaderId;
+            member.isLeader = member.playerId == e.LeaderId;
         }
     }
 
