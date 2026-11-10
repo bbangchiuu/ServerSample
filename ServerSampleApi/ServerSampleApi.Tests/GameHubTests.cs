@@ -55,6 +55,32 @@ public class GameHubTests : IClassFixture<ApiFactory>
         Assert.Equal(messageForBob.SentAt, messageForAlice.SentAt);
     }
 
+    [Fact]
+    public async Task MessagePackClient_AndJsonClient_ChatTogether()
+    {
+        TestPlayer alice = await TestHelper.RegisterNewPlayerAsync(_factory);
+        TestPlayer bob = await TestHelper.RegisterNewPlayerAsync(_factory);
+
+        // Alice dùng MessagePack (nhị phân), Bob dùng JSON. Server hỗ trợ cả hai: mỗi kết nối tự chọn lúc handshake,
+        // server tự chuyển tin sang đúng định dạng của từng người nhận.
+        await using HubConnection aliceMessagePack = await TestHelper.ConnectToHubAsync(_factory, alice, useMessagePack: true);
+        await using HubConnection bobJson = await ConnectAsync(bob);
+        Task<ChatMessage> bobReceived = WaitForChatMessageAsync(bobJson);
+        Task<ChatMessage> aliceReceived = WaitForChatMessageAsync(aliceMessagePack);
+
+        await aliceMessagePack.InvokeAsync(nameof(GameHub.SendChatMessage), "sent as messagepack");
+
+        ChatMessage forBob = await bobReceived.WaitAsync(Timeout);
+        ChatMessage forAlice = await aliceReceived.WaitAsync(Timeout);
+        Assert.Equal("sent as messagepack", forBob.Text);
+        Assert.Equal(alice.PlayerId, forAlice.PlayerId);
+        Assert.Equal("sent as messagepack", forAlice.Text);
+
+        // Hàm có giá trị trả về (Completion) cũng chạy được qua MessagePack.
+        OnlinePlayersResponse online = await aliceMessagePack.InvokeAsync<OnlinePlayersResponse>(nameof(GameHub.GetOnlinePlayers));
+        Assert.Contains(online.Players, p => p.PlayerId == bob.PlayerId);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]

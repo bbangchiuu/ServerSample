@@ -59,10 +59,18 @@ internal static class TestHelper
     /// Tạo kết nối SignalR tới hub /hubs/game của server ảo, chạy bằng WebSocket (chưa mở: gọi StartAsync).
     /// Token gửi trên URL "?access_token=..." giống trình duyệt (không đặt được header khi mở WebSocket),
     /// để thử đúng đoạn OnMessageReceived trong Program.cs. accessToken = null: kết nối không có token.
+    /// useMessagePack: chọn giao thức MessagePack (nhị phân) thay cho JSON mặc định.
     /// </summary>
-    public static HubConnection CreateHubConnection(WebApplicationFactory<Program> factory, string? accessToken)
+    public static HubConnection CreateHubConnection(WebApplicationFactory<Program> factory, string? accessToken,
+        bool useMessagePack = false)
     {
-        return new HubConnectionBuilder()
+        IHubConnectionBuilder builder = new HubConnectionBuilder();
+        if (useMessagePack)
+        {
+            builder.AddMessagePackProtocol(); // handshake gửi {"protocol":"messagepack","version":1}
+        }
+
+        return builder
             .WithUrl(new Uri(factory.Server.BaseAddress, GameHub.Path.TrimStart('/')), options =>
             {
                 options.Transports = HttpTransportType.WebSockets;
@@ -83,9 +91,10 @@ internal static class TestHelper
     /// Mở kết nối hub bằng token của người chơi (như một thiết bị đang mở game).
     /// factory là server muốn nối vào: ApiFactory, hoặc một server thứ hai tạo bằng WithWebHostBuilder.
     /// </summary>
-    public static async Task<HubConnection> ConnectToHubAsync(WebApplicationFactory<Program> factory, TestPlayer player)
+    public static async Task<HubConnection> ConnectToHubAsync(WebApplicationFactory<Program> factory, TestPlayer player,
+        bool useMessagePack = false)
     {
-        HubConnection connection = CreateHubConnection(factory, player.AccessToken);
+        HubConnection connection = CreateHubConnection(factory, player.AccessToken, useMessagePack);
         await connection.StartAsync();
         return connection;
     }

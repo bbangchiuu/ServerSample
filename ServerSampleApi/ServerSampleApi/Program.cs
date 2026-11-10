@@ -179,6 +179,11 @@ builder.Services.AddSignalR(options =>
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);     // server gửi ping
     options.ClientTimeoutInterval = TimeSpan.FromSeconds(30); // chờ client tối đa
 })
+    // Giao thức JSON có sẵn (AddSignalR tự đăng ký). Thêm MessagePack (package
+    // Microsoft.AspNetCore.SignalR.Protocols.MessagePack): tin nhắn dạng nhị phân, nhỏ và nhanh hơn JSON.
+    // Server hỗ trợ CẢ HAI, mỗi client tự chọn lúc handshake ({"protocol":"json"} hay {"protocol":"messagepack"}),
+    // nên các client JSON đang có (HubClient, thư viện trong Unity, chat-test.html) không bị ảnh hưởng.
+    .AddMessagePackProtocol()
     // Redis backplane (package Microsoft.AspNetCore.SignalR.StackExchangeRedis): cho phép chạy NHIỀU server.
     // Không có nó, mỗi server chỉ biết các kết nối của CHÍNH nó: Clients.All trên server 1 không tới được
     // người chơi đang nối vào server 2. Có nó, mỗi lần gửi (Clients.All, Clients.User...) server còn đăng tin lên
