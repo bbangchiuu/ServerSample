@@ -48,6 +48,55 @@ namespace ServerSampleApi.Migrations
                     b.ToTable("Accounts");
                 });
 
+            modelBuilder.Entity("ServerSampleApi.Models.ClanMemberModel", b =>
+                {
+                    b.Property<Guid>("PlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("JoinedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("PlayerId");
+
+                    b.HasIndex("ClanId");
+
+                    b.ToTable("ClanMembers");
+                });
+
+            modelBuilder.Entity("ServerSampleApi.Models.ClanModel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("LeaderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("MemberCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("citext");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LeaderId");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Clans_Name");
+
+                    b.ToTable("Clans");
+                });
+
             modelBuilder.Entity("ServerSampleApi.Models.InventoryItemModel", b =>
                 {
                     b.Property<Guid>("PlayerId")
@@ -145,6 +194,32 @@ namespace ServerSampleApi.Migrations
                         .IsUnique();
 
                     b.ToTable("RefreshTokens");
+                });
+
+            modelBuilder.Entity("ServerSampleApi.Models.ClanMemberModel", b =>
+                {
+                    b.HasOne("ServerSampleApi.Models.ClanModel", null)
+                        .WithMany()
+                        .HasForeignKey("ClanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ServerSampleApi.Models.PlayerModel", "Player")
+                        .WithOne()
+                        .HasForeignKey("ServerSampleApi.Models.ClanMemberModel", "PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Player");
+                });
+
+            modelBuilder.Entity("ServerSampleApi.Models.ClanModel", b =>
+                {
+                    b.HasOne("ServerSampleApi.Models.PlayerModel", null)
+                        .WithMany()
+                        .HasForeignKey("LeaderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ServerSampleApi.Models.InventoryItemModel", b =>

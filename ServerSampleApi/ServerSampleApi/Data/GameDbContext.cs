@@ -27,6 +27,13 @@ namespace ServerSampleApi.Data
 
         public DbSet<RefreshTokenModel> RefreshTokens => Set<RefreshTokenModel>();
 
+        public DbSet<ClanModel> Clans => Set<ClanModel>();
+
+        public DbSet<ClanMemberModel> ClanMembers => Set<ClanMemberModel>();
+
+        /// <summary>Tên unique index trên Clans.Name: dùng để biết lỗi "trùng" là do trùng tên clan (xem ClansController).</summary>
+        public const string ClanNameIndex = "IX_Clans_Name";
+
         /// <summary>Mô tả chi tiết từng bảng: khoá chính, khoá ngoại, độ dài cột, ràng buộc...</summary>
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -89,6 +96,41 @@ namespace ServerSampleApi.Data
                 token.HasOne<AccountModel>()
                     .WithMany()
                     .HasForeignKey(t => t.AccountId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<ClanModel>(clan =>
+            {
+                clan.HasKey(c => c.Id);
+
+                // Giống Username: "Dragons" và "dragons" là cùng một tên, database từ chối tên thứ hai.
+                clan.Property(c => c.Name).HasColumnType("citext").HasMaxLength(20).IsRequired();
+                clan.HasIndex(c => c.Name).IsUnique().HasDatabaseName(ClanNameIndex);
+
+                // Chủ clan phải là một người chơi có thật. Restrict: không cho xoá người chơi đang làm chủ clan
+                // (phải chuyển chủ hoặc rời clan trước), tránh clan "không có chủ".
+                clan.HasOne<PlayerModel>()
+                    .WithMany()
+                    .HasForeignKey(c => c.LeaderId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<ClanMemberModel>(member =>
+            {
+                // Khoá chính CHỈ là PlayerId (không phải PlayerId + ClanId): một người chơi chỉ có một dòng,
+                // nên không thể ở hai clan cùng lúc.
+                member.HasKey(m => m.PlayerId);
+
+                member.HasOne(m => m.Player)
+                    .WithOne()
+                    .HasForeignKey<ClanMemberModel>(m => m.PlayerId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                // Một clan có nhiều thành viên. Xoá clan thì xoá luôn các dòng thành viên của nó.
+                // EF tự tạo index trên ClanId, nên "lấy mọi thành viên của clan X" không phải quét cả bảng.
+                member.HasOne<ClanModel>()
+                    .WithMany()
+                    .HasForeignKey(m => m.ClanId)
                     .OnDelete(DeleteBehavior.Cascade);
             });
         }
