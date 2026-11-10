@@ -163,6 +163,29 @@ public class ApiClient
         Send("POST", $"/api/players/me/inventory/{UnityWebRequest.EscapeURL(itemId)}/use", null,
             requiresLogin: true, onSuccess, onError);
 
+    // ===== Clan (/api/clans) =====
+
+    /// <summary>Tìm clan có tên chứa search (không phân biệt hoa thường). search rỗng: lấy vài clan đầu tiên theo tên.</summary>
+    public void SearchClans(string search, Action<ClanListResponse> onSuccess, Action<ApiError>? onError = null) =>
+        Send("GET", "/api/clans?search=" + UnityWebRequest.EscapeURL(search), null, requiresLogin: true, onSuccess, onError);
+
+    public void CreateClan(string name, Action<ClanResponse> onSuccess, Action<ApiError>? onError = null) =>
+        Send("POST", "/api/clans", new CreateClanRequest { name = name }, requiresLogin: true, onSuccess, onError);
+
+    public void GetClan(string clanId, Action<ClanResponse> onSuccess, Action<ApiError>? onError = null) =>
+        Send("GET", $"/api/clans/{clanId}", null, requiresLogin: true, onSuccess, onError);
+
+    /// <summary>Clan của mình. Chưa ở clan nào thì server trả 404 (gọi onError với StatusCode 404).</summary>
+    public void GetMyClan(Action<ClanResponse> onSuccess, Action<ApiError>? onError = null) =>
+        Send("GET", "/api/clans/me", null, requiresLogin: true, onSuccess, onError);
+
+    public void JoinClan(string clanId, Action<ClanResponse> onSuccess, Action<ApiError>? onError = null) =>
+        Send("POST", $"/api/clans/{clanId}/join", null, requiresLogin: true, onSuccess, onError);
+
+    /// <summary>Rời clan. Server trả 204 (không có dữ liệu), nên onSuccess nhận null.</summary>
+    public void LeaveClan(Action<EmptyResponse> onSuccess, Action<ApiError>? onError = null) =>
+        Send("POST", "/api/clans/me/leave", null, requiresLogin: true, onSuccess, onError);
+
     // ===== Phần dùng chung =====
 
     /// <summary>

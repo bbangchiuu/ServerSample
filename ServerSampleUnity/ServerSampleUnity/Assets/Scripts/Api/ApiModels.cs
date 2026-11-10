@@ -117,6 +117,66 @@ public class ChatMessage
     public string sentAt;
 }
 
+// ===== Clan =====
+
+[Serializable]
+public class CreateClanRequest
+{
+    public string name;
+}
+
+/// <summary>Một clan kèm danh sách thành viên (GET /api/clans/{id}, /api/clans/me, kết quả tạo / vào clan).</summary>
+[Serializable]
+public class ClanResponse
+{
+    public string id;
+    public string name;
+    public string leaderId;
+    public int memberCount;
+    public int maxMembers;
+    public string createdAt;
+    public List<ClanMember> members;
+}
+
+[Serializable]
+public class ClanMember
+{
+    public string playerId;
+    public string displayName;
+    public bool isLeader;
+    public string joinedAt;
+}
+
+/// <summary>Kết quả tìm clan: {"clans":[...]}.</summary>
+[Serializable]
+public class ClanListResponse
+{
+    public List<ClanSummary> clans;
+}
+
+[Serializable]
+public class ClanSummary
+{
+    public string id;
+    public string name;
+    public int memberCount;
+    public int maxMembers;
+}
+
+/// <summary>
+/// Có người vào / rời clan. Server đẩy xuống qua hub ("ClanMemberJoined", "ClanMemberLeft").
+/// leaderId và memberCount là giá trị SAU thay đổi. leaderId null/rỗng = clan đã bị xoá (người cuối cùng vừa rời).
+/// </summary>
+[Serializable]
+public class ClanMemberEvent
+{
+    public string clanId;
+    public string playerId;
+    public string displayName;
+    public string leaderId;
+    public int memberCount;
+}
+
 /// <summary>Định dạng lỗi chuẩn mà server trả về cho mọi lỗi 4xx/5xx.</summary>
 [Serializable]
 public class ProblemDetails

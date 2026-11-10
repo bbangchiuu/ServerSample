@@ -12,8 +12,9 @@ using UnityEngine;
 /// Thử hub /hubs/game bằng thư viện CHÍNH THỨC Microsoft.AspNetCore.SignalR.Client, thay cho HubClient tự viết.
 /// Cách dùng: tạo một GameObject rỗng, Add Component → SignalR Library Test, bấm Play rồi bấm Login.
 /// Đăng nhập vẫn dùng ApiClient (HTTP), chỉ phần realtime là dùng thư viện.
+/// "partial": phần clan (cột bên phải) nằm ở file SignalRLibraryTest.Clan.cs, cùng một class.
 /// </summary>
-public class SignalRLibraryTest : MonoBehaviour
+public partial class SignalRLibraryTest : MonoBehaviour
 {
     [SerializeField] private string baseUrl = "https://localhost:5257";
     [SerializeField] private string username = "bang";
@@ -23,6 +24,9 @@ public class SignalRLibraryTest : MonoBehaviour
 
     private ApiClient _api = null!;
     private HubConnection? _connection;
+
+    /// <summary>playerId của người đang đăng nhập. "" = chưa đăng nhập.</summary>
+    private string _playerId = "";
 
     // Main thread của Unity. Thư viện gọi các hàm đăng ký bằng On(...) trên một THREAD KHÁC (thread pool),
     // mà phần lớn API của Unity chỉ được gọi trên main thread: phải chuyển việc về đây trước khi xử lý.
@@ -50,7 +54,12 @@ public class SignalRLibraryTest : MonoBehaviour
     private void Login()
     {
         _api.Login(username, password,
-            account => Connect(),
+            account =>
+            {
+                _playerId = account.playerId;
+                RefreshMyClan();
+                Connect();
+            },
             error => AddLine($"Login failed: {error.Message}"));
     }
 
@@ -87,6 +96,9 @@ public class SignalRLibraryTest : MonoBehaviour
         _connection.On<PlayerProfile>("ProfileChanged", profile =>
             RunOnMainThread(() => AddLine($"(Pushed) Profile: {profile.displayName}, {profile.gold} gold")));
 
+        // Mỗi lần Connect tạo một HubConnection MỚI, nên phải đăng ký lại các hàm của clan cho kết nối mới này.
+        RegisterClanHandlers(_connection);
+
         // Các sự kiện kết nối: thư viện cũng gọi chúng trên thread khác, và yêu cầu trả về Task.
         _connection.Reconnecting += error =>
         {
@@ -95,7 +107,13 @@ public class SignalRLibraryTest : MonoBehaviour
         };
         _connection.Reconnected += connectionId =>
         {
-            RunOnMainThread(() => AddLine("(Reconnected)"));
+            RunOnMainThread(() =>
+            {
+                AddLine("(Reconnected)");
+                // Lúc mất kết nối có thể đã lỡ ClanMemberJoined/Left: tải lại clan.
+                // Phải ở trong RunOnMainThread: ApiClient dùng UnityWebRequest, chỉ gọi được trên main thread.
+                RefreshMyClan();
+            });
             return Task.CompletedTask;
         };
         _connection.Closed += error =>
@@ -178,5 +196,11 @@ public class SignalRLibraryTest : MonoBehaviour
             GUILayout.Label(line);
         }
         GUILayout.EndArea();
+
+        DrawClanPanel(); // cột bên phải, xem SignalRLibraryTest.Clan.cs
     }
+
+    /// <summary>Kết nối hub đang mở và dùng được (gửi tin, gọi hàm).</summary>
+    private bool IsHubConnected =>
+        _connection != null && _connection.State == Microsoft.AspNetCore.SignalR.Client.HubConnectionState.Connected;
 }
