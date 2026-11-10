@@ -30,5 +30,17 @@ namespace ServerSampleApi.Hubs
 
         /// <summary>Một người chơi vừa offline (đóng kết nối CUỐI CÙNG). Gửi cho mọi người khác.</summary>
         Task PlayerOffline(OnlinePlayer player);
+
+        /// <summary>Tin nhắn chat clan. Chỉ gửi cho các thành viên của clan (kể cả người gửi).</summary>
+        Task ReceiveClanChatMessage(ChatMessage message);
+
+        /// <summary>
+        /// Một người vừa vào clan (hoặc vừa tạo clan). Gửi cho mọi thành viên SAU khi người đó vào,
+        /// tức cả chính người đó: các thiết bị khác của họ cũng biết mình vừa vào clan.
+        /// </summary>
+        Task ClanMemberJoined(ClanMemberEvent memberEvent);
+
+        /// <summary>Một người vừa rời clan. Gửi cho các thành viên còn lại VÀ người vừa rời (các thiết bị khác của họ).</summary>
+        Task ClanMemberLeft(ClanMemberEvent memberEvent);
     }
 }

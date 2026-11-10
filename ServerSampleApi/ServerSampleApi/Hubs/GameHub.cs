@@ -138,11 +138,50 @@ namespace ServerSampleApi.Hubs
             return new OnlinePlayersResponse { Players = players };
         }
 
+        /// <summary>Client gọi: gửi tin nhắn chat cho TẤT CẢ người chơi đang kết nối (kể cả chính người gửi).</summary>
+        public async Task SendChatMessage(string text)
+        {
+            ChatMessage message = CreateChatMessage(text);
+
+            // Clients.All: mọi kết nối đang mở. SignalR gửi cho từng kết nối, server không phải tự lặp.
+            await Clients.All.ReceiveChatMessage(message);
+        }
+
         /// <summary>
-        /// Client gọi: gửi tin nhắn chat cho TẤT CẢ người chơi đang kết nối (kể cả chính người gửi).
+        /// Client gọi: gửi tin nhắn cho các thành viên trong clan của mình (kể cả chính mình).
+        ///
+        /// Danh sách người nhận đọc từ DATABASE mỗi lần gửi, rồi gửi bằng Clients.Users(...) (mọi kết nối của
+        /// những người đó). Không dùng SignalR Groups vì nhóm gắn với từng KẾT NỐI: vào/rời clan qua HTTP thì server
+        /// không biết người đó đang mở những kết nối nào để thêm/bớt khỏi nhóm. Đọc từ database thì luôn đúng
+        /// ngay sau khi vào/rời clan, trên mọi thiết bị, và chạy được qua backplane khi có nhiều server.
+        /// </summary>
+        public async Task SendClanChatMessage(string text)
+        {
+            ChatMessage message = CreateChatMessage(text);
+
+            // Mọi thành viên cùng clan với người gửi, bằng MỘT câu SQL:
+            //   SELECT m."PlayerId" FROM "ClanMembers" m
+            //   WHERE EXISTS (SELECT 1 FROM "ClanMembers" me WHERE me."PlayerId" = @sender AND me."ClanId" = m."ClanId")
+            // Người gửi không ở clan nào thì danh sách rỗng.
+            Guid senderId = message.PlayerId;
+            List<string> memberIds = await _db.ClanMembers
+                .Where(m => _db.ClanMembers.Any(me => me.PlayerId == senderId && me.ClanId == m.ClanId))
+                .Select(m => m.PlayerId.ToString())
+                .ToListAsync();
+
+            if (memberIds.Count == 0)
+            {
+                throw new HubException("You are not in a clan.");
+            }
+
+            await Clients.Users(memberIds).ReceiveClanChatMessage(message);
+        }
+
+        /// <summary>
+        /// Kiểm tra nội dung rồi tạo tin nhắn, dùng chung cho chat thế giới và chat clan.
         /// Người gửi lấy từ token, không nhận từ client: client không giả làm người khác được.
         /// </summary>
-        public async Task SendChatMessage(string text)
+        private ChatMessage CreateChatMessage(string? text)
         {
             text = text?.Trim() ?? "";
             if (text.Length == 0 || text.Length > MaxChatMessageLength)
@@ -152,16 +191,13 @@ namespace ServerSampleApi.Hubs
                 throw new HubException($"Message must be 1-{MaxChatMessageLength} characters.");
             }
 
-            var message = new ChatMessage
+            return new ChatMessage
             {
                 PlayerId = Context.User!.GetPlayerId(),
                 DisplayName = (string)Context.Items[DisplayNameKey]!,
                 Text = text,
                 SentAt = DateTime.UtcNow,
             };
-
-            // Clients.All: mọi kết nối đang mở. SignalR gửi cho từng kết nối, server không phải tự lặp.
-            await Clients.All.ReceiveChatMessage(message);
         }
     }
 }

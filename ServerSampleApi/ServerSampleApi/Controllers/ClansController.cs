@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using ServerSampleApi.Auth;
 using ServerSampleApi.Data;
 using ServerSampleApi.Dtos;
+using ServerSampleApi.Hubs;
 using ServerSampleApi.Models;
 
 namespace ServerSampleApi.Controllers
@@ -29,10 +31,12 @@ namespace ServerSampleApi.Controllers
         public const int MaxSearchResults = 20;
 
         private readonly GameDbContext _db;
+        private readonly IHubContext<GameHub, IGameClient> _hub;
 
-        public ClansController(GameDbContext db)
+        public ClansController(GameDbContext db, IHubContext<GameHub, IGameClient> hub)
         {
             _db = db;
+            _hub = hub;
         }
 
         // GET /api/clans?search=drag
@@ -116,6 +120,9 @@ namespace ServerSampleApi.Controllers
             }
 
             ClanResponse response = (await LoadClanAsync(clan.Id))!;
+
+            // Các thiết bị khác của người tạo (đang mở kết nối hub) cũng biết mình vừa có clan.
+            await NotifyMemberJoinedAsync(response, playerId);
             return CreatedAtAction(nameof(GetClan), new { clanId = clan.Id }, response);
         }
 
@@ -191,7 +198,17 @@ namespace ServerSampleApi.Controllers
             }
 
             await transaction.CommitAsync();
-            return Ok(await LoadClanAsync(clanId));
+
+            ClanResponse? clan = await LoadClanAsync(clanId);
+            if (clan == null)
+            {
+                return ClanNotFound(); // vừa vào xong thì clan đã bị xoá: chỉ xảy ra khi chính người này rời clan ngay sau đó
+            }
+
+            // Đã COMMIT rồi mới báo, giống nhận thưởng hằng ngày: báo trước mà commit thất bại thì client
+            // sẽ thấy một thành viên không có thật.
+            await NotifyMemberJoinedAsync(clan, playerId);
+            return Ok(clan);
         }
 
         // POST /api/clans/me/leave
@@ -229,10 +246,12 @@ namespace ServerSampleApi.Controllers
 
             // Đọc lại SAU khi đã giữ khoá: thấy đúng số thành viên và chủ clan mới nhất.
             ClanModel clan = await _db.Clans.AsNoTracking().FirstAsync(c => c.Id == clanId);
+            Guid? leaderId = clan.LeaderId;
             if (clan.MemberCount == 0)
             {
                 // Người cuối cùng rời đi: xoá clan, tên clan được dùng lại.
                 await _db.Clans.Where(c => c.Id == clanId).ExecuteDeleteAsync();
+                leaderId = null;
             }
             else if (clan.LeaderId == playerId)
             {
@@ -247,12 +266,58 @@ namespace ServerSampleApi.Controllers
                 await _db.Clans
                     .Where(c => c.Id == clanId)
                     .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.LeaderId, newLeaderId));
+                leaderId = newLeaderId;
             }
+
+            // Gom dữ liệu để báo tin, ngay trong lúc còn giữ khoá: danh sách người ở lại là chính xác.
+            List<Guid> remainingIds = await _db.ClanMembers
+                .Where(m => m.ClanId == clanId)
+                .Select(m => m.PlayerId)
+                .ToListAsync();
+            string displayName = await _db.Players
+                .Where(p => p.Id == playerId)
+                .Select(p => p.DisplayName)
+                .FirstAsync();
 
             await transaction.CommitAsync();
 
+            // Người nhận: những người ở lại + chính người vừa rời (để các thiết bị khác của họ cũng biết).
+            remainingIds.Add(playerId);
+            await _hub.Clients.Users(remainingIds.Select(id => id.ToString()).ToList())
+                .ClanMemberLeft(new ClanMemberEvent
+                {
+                    ClanId = clan.Id,
+                    PlayerId = playerId,
+                    DisplayName = displayName,
+                    LeaderId = leaderId,
+                    MemberCount = clan.MemberCount,
+                });
+
             // 204 No Content: thành công, không có gì để trả về.
             return NoContent();
+        }
+
+        /// <summary>
+        /// Báo "playerId vừa vào clan" cho mọi thành viên hiện tại của clan (gồm cả chính người đó).
+        /// Clients.Users(...): mọi kết nối của những người trong danh sách, trên server nào cũng được (backplane).
+        /// </summary>
+        private Task NotifyMemberJoinedAsync(ClanResponse clan, Guid playerId)
+        {
+            ClanMemberResponse? member = clan.Members.FirstOrDefault(m => m.PlayerId == playerId);
+            if (member == null)
+            {
+                return Task.CompletedTask; // đã rời clan ngay sau khi vào: không còn gì để báo
+            }
+
+            return _hub.Clients.Users(clan.Members.Select(m => m.PlayerId.ToString()).ToList())
+                .ClanMemberJoined(new ClanMemberEvent
+                {
+                    ClanId = clan.Id,
+                    PlayerId = playerId,
+                    DisplayName = member.DisplayName,
+                    LeaderId = clan.LeaderId,
+                    MemberCount = clan.MemberCount,
+                });
         }
 
         /// <summary>Clan mà người chơi đang ở, null nếu không ở clan nào.</summary>
