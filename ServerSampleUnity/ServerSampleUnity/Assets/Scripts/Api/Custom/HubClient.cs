@@ -17,7 +17,7 @@ public class HubInvocationException : Exception
 }
 
 /// <summary>Trạng thái kết nối của HubClient.</summary>
-public enum HubConnectionState
+public enum HubConnectionStateCustom
 {
     /// <summary>Chưa kết nối, hoặc đã đóng hẳn (gọi CloseAsync, hoặc tự kết nối lại mãi không được).</summary>
     Disconnected,
@@ -119,9 +119,9 @@ public class HubClient
         _accessTokenProvider = accessTokenProvider;
     }
 
-    public HubConnectionState State { get; private set; } = HubConnectionState.Disconnected;
+    public HubConnectionStateCustom State { get; private set; } = HubConnectionStateCustom.Disconnected;
 
-    public bool IsConnected => State == HubConnectionState.Connected;
+    public bool IsConnected => State == HubConnectionStateCustom.Connected;
 
     /// <summary>Mất kết nối ngoài ý muốn, bắt đầu tự kết nối lại. Tham số là lý do mất kết nối.</summary>
     public event Action<string>? Reconnecting;
@@ -151,32 +151,32 @@ public class HubClient
 
     public async Task ConnectAsync()
     {
-        if (State != HubConnectionState.Disconnected)
+        if (State != HubConnectionStateCustom.Disconnected)
         {
             throw new InvalidOperationException($"Cannot connect while {State}. Call CloseAsync first.");
         }
 
-        State = HubConnectionState.Connecting;
+        State = HubConnectionStateCustom.Connecting;
         try
         {
             await StartAsync();
         }
         catch
         {
-            if (State == HubConnectionState.Connecting)
+            if (State == HubConnectionStateCustom.Connecting)
             {
-                State = HubConnectionState.Disconnected;
+                State = HubConnectionStateCustom.Disconnected;
             }
             throw;
         }
 
-        if (State != HubConnectionState.Connecting)
+        if (State != HubConnectionStateCustom.Connecting)
         {
             // CloseAsync được gọi trong lúc đang kết nối: đóng luôn kết nối vừa mở.
             Cleanup();
             return;
         }
-        State = HubConnectionState.Connected;
+        State = HubConnectionStateCustom.Connected;
     }
 
     /// <summary>
@@ -231,15 +231,15 @@ public class HubClient
     /// <summary>Đóng kết nối và DỪNG tự kết nối lại (đăng xuất, tắt game...).</summary>
     public async Task CloseAsync()
     {
-        HubConnectionState previousState = State;
-        if (previousState == HubConnectionState.Disconnected)
+        HubConnectionStateCustom previousState = State;
+        if (previousState == HubConnectionStateCustom.Disconnected)
         {
             return;
         }
 
         // Đổi trạng thái TRƯỚC tiên: vòng tự kết nối lại (nếu đang chạy) thấy trạng thái đổi thì tự dừng,
         // và vòng nhận dữ liệu thấy socket đóng cũng không coi đó là "mất kết nối ngoài ý muốn".
-        State = HubConnectionState.Disconnected;
+        State = HubConnectionStateCustom.Disconnected;
 
         ClientWebSocket? socket = _socket;
         if (socket != null && socket.State == WebSocketState.Open)
@@ -318,7 +318,7 @@ public class HubClient
     /// </summary>
     private void OnConnectionLost(string error, bool allowReconnect)
     {
-        if (State != HubConnectionState.Connected)
+        if (State != HubConnectionStateCustom.Connected)
         {
             return; // đã xử lý rồi (vòng nhận dữ liệu và vòng giữ kết nối có thể cùng phát hiện), hoặc đang CloseAsync
         }
@@ -330,7 +330,7 @@ public class HubClient
         }
         else
         {
-            State = HubConnectionState.Disconnected;
+            State = HubConnectionStateCustom.Disconnected;
             Closed?.Invoke(error);
         }
     }
@@ -341,13 +341,13 @@ public class HubClient
     /// </summary>
     private async void ReconnectLoop(string error)
     {
-        State = HubConnectionState.Reconnecting;
+        State = HubConnectionStateCustom.Reconnecting;
         Reconnecting?.Invoke(error);
 
         foreach (TimeSpan delay in ReconnectDelays)
         {
             await Task.Delay(delay);
-            if (State != HubConnectionState.Reconnecting)
+            if (State != HubConnectionStateCustom.Reconnecting)
             {
                 return; // CloseAsync được gọi trong lúc chờ: dừng, CloseAsync đã báo Closed rồi
             }
@@ -367,19 +367,19 @@ public class HubClient
                 continue;
             }
 
-            if (State != HubConnectionState.Reconnecting)
+            if (State != HubConnectionStateCustom.Reconnecting)
             {
                 Cleanup(); // CloseAsync được gọi trong lúc đang kết nối lại
                 return;
             }
-            State = HubConnectionState.Connected;
+            State = HubConnectionStateCustom.Connected;
             Reconnected?.Invoke();
             return;
         }
 
-        if (State == HubConnectionState.Reconnecting)
+        if (State == HubConnectionStateCustom.Reconnecting)
         {
-            State = HubConnectionState.Disconnected;
+            State = HubConnectionStateCustom.Disconnected;
             Closed?.Invoke(error);
         }
     }
@@ -438,7 +438,7 @@ public class HubClient
             return; // không còn là kết nối hiện tại (đã đóng / đã thay bằng kết nối mới)
         }
 
-        if (State == HubConnectionState.Connected)
+        if (State == HubConnectionStateCustom.Connected)
         {
             OnConnectionLost(closeError, allowReconnect: true);
         }

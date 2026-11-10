@@ -390,7 +390,7 @@ public class ApiTestController : MonoBehaviour
             GUI.enabled = _hub.IsConnected;
             if (GUILayout.Button("Send")) SendChat();
             // Đang tự kết nối lại thì không cho bấm: chỉ bấm được khi đã đóng hẳn (tự kết nối lại cũng bỏ cuộc).
-            GUI.enabled = _hub.State == HubConnectionState.Disconnected;
+            GUI.enabled = _hub.State == HubConnectionStateCustom.Disconnected;
             if (GUILayout.Button("Reconnect")) ConnectWebSocket();
             GUI.enabled = true;
             GUILayout.EndHorizontal();
