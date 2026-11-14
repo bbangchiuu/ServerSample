@@ -1,4 +1,6 @@
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -66,6 +68,37 @@ public class PresenceTests : IClassFixture<ApiFactory>
         await bobWentOffline.WaitAsync(Timeout);
         Assert.DoesNotContain(await GetOnlinePlayerIdsAsync(aliceConnection), id => id == bob.PlayerId);
         Assert.Contains(await GetOnlinePlayerIdsAsync(aliceConnection), id => id == alice.PlayerId); // Alice không bị ảnh hưởng
+    }
+
+    [Fact]
+    public async Task DeadServer_WhileDatabaseIsDown_HeartbeatDoesNotCrash_AndOthersAreStillNotified()
+    {
+        TestPlayer alice = await TestHelper.RegisterNewPlayerAsync(_factory);
+        TestPlayer bob = await TestHelper.RegisterNewPlayerAsync(_factory);
+        await using HubConnection aliceConnection = await TestHelper.ConnectToHubAsync(_factory, alice);
+        Task<OnlinePlayer> bobWentOffline = TestHelper.WaitForEventAsync<OnlinePlayer>(
+            aliceConnection, nameof(IGameClient.PlayerOffline), p => p.PlayerId == bob.PlayerId);
+
+        // Server thứ hai: cùng Redis và kênh backplane, nhưng PostgreSQL không tồn tại (cổng 1 không có gì).
+        // Truy cập .Services để server khởi động xong TRƯỚC khi tạo server chết, cho nhịp heartbeat lúc khởi động
+        // không đụng tới nó.
+        await using WebApplicationFactory<Program> databaseDown = _factory.WithWebHostBuilder(builder =>
+            builder.UseSetting("ConnectionStrings:GameDb",
+                "Host=127.0.0.1;Port=1;Database=nothing;Username=nobody;Password=wrong;Timeout=3"));
+        PresenceHeartbeatService heartbeat = databaseDown.Services
+            .GetServices<IHostedService>().OfType<PresenceHeartbeatService>().Single();
+
+        await SimulateDeadServerWithPlayerAsync(bob.PlayerId);
+
+        // Server này phát hiện server chết, nhưng không đọc được tên hiển thị từ PostgreSQL.
+        // Trước đây: exception lọt ra ngoài (BeatAsync ném lỗi, và trong vòng lặp thật thì TẮT CẢ SERVER),
+        // còn PlayerOffline của Bob mất luôn vì Bob đã bị xoá khỏi Redis rồi.
+        await heartbeat.BeatAsync();
+
+        // Vẫn báo PlayerOffline (không có tên hiển thị), và Bob không còn trong danh sách online.
+        OnlinePlayer offline = await bobWentOffline.WaitAsync(Timeout);
+        Assert.Equal(bob.PlayerId, offline.PlayerId);
+        Assert.DoesNotContain(await GetOnlinePlayerIdsAsync(aliceConnection), id => id == bob.PlayerId);
     }
 
     [Fact]

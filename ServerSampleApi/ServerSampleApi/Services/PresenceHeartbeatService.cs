@@ -66,8 +66,14 @@ namespace ServerSampleApi.Services
             }
             catch (Exception ex) when (ex is RedisException or RedisTimeoutException)
             {
-                // Redis lỗi thì lần sau thử lại. Lỗi lọt ra ngoài thì vòng lặp dừng hẳn và ASP.NET Core tắt cả server.
+                // Redis lỗi thì lần sau thử lại.
                 _logger.LogWarning(ex, "Presence heartbeat failed. Will retry.");
+            }
+            catch (Exception ex)
+            {
+                // Lỗi khác (bug trong code...): ghi log mức Error để lập trình viên biết, nhưng vẫn KHÔNG để lọt ra ngoài.
+                // Lỗi lọt ra khỏi ExecuteAsync thì vòng lặp dừng hẳn và ASP.NET Core TẮT CẢ SERVER, chỉ vì việc phụ này.
+                _logger.LogError(ex, "Presence heartbeat failed unexpectedly. Will retry.");
             }
         }
 
@@ -87,7 +93,13 @@ namespace ServerSampleApi.Services
             await base.StopAsync(cancellationToken);
         }
 
-        /// <summary>Báo PlayerOffline cho mọi người, kèm tên hiển thị đọc từ PostgreSQL.</summary>
+        /// <summary>
+        /// Báo PlayerOffline cho mọi người, kèm tên hiển thị đọc từ PostgreSQL.
+        ///
+        /// Tới đây những người chơi này ĐÃ bị xoá khỏi Redis. Nếu không báo được thì tin này mất hẳn: người khác vẫn
+        /// thấy họ "online" tới lúc tải lại danh sách. Vì vậy PostgreSQL lỗi thì vẫn báo, chỉ là không có tên hiển thị:
+        /// thứ quan trọng là PlayerId (client dựa vào nó để xoá khỏi danh sách), tên chỉ để hiện cho đẹp.
+        /// </summary>
         private async Task NotifyOfflineAsync(List<Guid> playerIds)
         {
             if (playerIds.Count == 0)
@@ -97,17 +109,30 @@ namespace ServerSampleApi.Services
 
             _logger.LogInformation("{Count} players went offline because their server stopped", playerIds.Count);
 
-            // Hosted service là Singleton, GameDbContext là Scoped: tự tạo scope (giống LeaderboardStartupRebuildService).
-            using IServiceScope scope = _scopeFactory.CreateScope();
-            GameDbContext db = scope.ServiceProvider.GetRequiredService<GameDbContext>();
-            List<OnlinePlayer> players = await db.Players
-                .Where(p => playerIds.Contains(p.Id))
-                .Select(p => new OnlinePlayer { PlayerId = p.Id, DisplayName = p.DisplayName })
-                .ToListAsync();
-
-            foreach (OnlinePlayer player in players)
+            Dictionary<Guid, string> displayNames;
+            try
             {
-                await _hub.Clients.All.PlayerOffline(player);
+                // Hosted service là Singleton, GameDbContext là Scoped: tự tạo scope (giống LeaderboardStartupRebuildService).
+                using IServiceScope scope = _scopeFactory.CreateScope();
+                GameDbContext db = scope.ServiceProvider.GetRequiredService<GameDbContext>();
+                displayNames = await db.Players
+                    .Where(p => playerIds.Contains(p.Id))
+                    .Select(p => new { p.Id, p.DisplayName })
+                    .ToDictionaryAsync(p => p.Id, p => p.DisplayName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not read display names from PostgreSQL. Sending PlayerOffline without names.");
+                displayNames = new Dictionary<Guid, string>();
+            }
+
+            foreach (Guid playerId in playerIds)
+            {
+                await _hub.Clients.All.PlayerOffline(new OnlinePlayer
+                {
+                    PlayerId = playerId,
+                    DisplayName = displayNames.GetValueOrDefault(playerId, ""),
+                });
             }
         }
     }
