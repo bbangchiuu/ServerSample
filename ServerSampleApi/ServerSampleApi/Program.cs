@@ -117,23 +117,32 @@ builder.Services.AddOptions<RateLimitingOptions>()
 
 builder.Services.AddRateLimiter(options =>
 {
-    // Vượt giới hạn: trả 429 kèm Retry-After (số giây phải chờ) và body dạng ProblemDetails.
-    // Lưu ý: body này tự viết bằng WriteAsJsonAsync nên KHÔNG có traceId và Content-Type là application/json
-    // (khác các lỗi đi qua IProblemDetailsService).
+    // Vượt giới hạn: trả 429 kèm Retry-After (số giây phải chờ) và ProblemDetails như mọi lỗi khác.
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.OnRejected = async (context, cancellationToken) =>
     {
-        HttpResponse response = context.HttpContext.Response;
+        HttpContext httpContext = context.HttpContext;
+        httpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
         if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
         {
-            response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
+            httpContext.Response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
         }
-        await response.WriteAsJsonAsync(new ProblemDetails
+
+        // Viết qua IProblemDetailsService (giống GlobalExceptionHandler), KHÔNG tự WriteAsJsonAsync:
+        // dịch vụ này tự thêm traceId và đặt Content-Type là application/problem+json, đúng định dạng với
+        // các lỗi 401/404/409/503. Tự viết bằng WriteAsJsonAsync thì thiếu cả hai.
+        // RequestServices: lấy service từ DI ngay trong request (lambda này không có constructor để nhận service).
+        IProblemDetailsService problemDetails = httpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
+        await problemDetails.TryWriteAsync(new ProblemDetailsContext
         {
-            Title = "Too many requests",
-            Detail = "Please wait and try again later.",
-            Status = StatusCodes.Status429TooManyRequests,
-        }, cancellationToken);
+            HttpContext = httpContext,
+            ProblemDetails = new ProblemDetails
+            {
+                Title = "Too many requests",
+                Detail = "Please wait and try again later.",
+                Status = StatusCodes.Status429TooManyRequests,
+            },
+        });
     };
 
     options.AddPolicy(RateLimitingOptions.LoginPolicy, httpContext =>

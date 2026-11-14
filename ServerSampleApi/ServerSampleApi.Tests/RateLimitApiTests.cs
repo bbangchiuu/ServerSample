@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc;
 using ServerSampleApi.Dtos;
 
 namespace ServerSampleApi.Tests;
@@ -51,8 +51,13 @@ public class RateLimitApiTests : IClassFixture<StrictRateLimitApiFactory>
 
         Assert.Equal(HttpStatusCode.TooManyRequests, blocked.StatusCode);
         Assert.NotNull(blocked.Headers.RetryAfter); // header Retry-After: còn bao nhiêu giây nữa thì thử lại được
-        ProblemDetails? problem = await blocked.Content.ReadFromJsonAsync<ProblemDetails>();
-        Assert.Equal("Too many requests", problem!.Title);
+
+        // Cùng định dạng với mọi lỗi khác (503, 404, 401...): application/problem+json và có traceId.
+        Assert.Equal("application/problem+json", blocked.Content.Headers.ContentType?.MediaType);
+        JsonElement problem = JsonDocument.Parse(await blocked.Content.ReadAsStringAsync()).RootElement;
+        Assert.Equal("Too many requests", problem.GetProperty("title").GetString());
+        Assert.Equal(429, problem.GetProperty("status").GetInt32());
+        Assert.False(string.IsNullOrEmpty(problem.GetProperty("traceId").GetString()));
     }
 
     [Fact]
