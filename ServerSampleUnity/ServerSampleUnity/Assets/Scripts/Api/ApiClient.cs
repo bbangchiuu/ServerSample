@@ -276,7 +276,8 @@ public class ApiClient
     /// Không cần lock: mọi đoạn code ở đây đều chạy trên main thread của Unity (sau mỗi await, Unity đưa code
     /// quay về main thread), nên không có hai đoạn nào chạy song song để tranh nhau _refreshTask.
     /// Điều kiện: mọi lời gọi vào ApiClient (kể cả GetValidAccessTokenAsync) phải BẮT ĐẦU từ main thread.
-    /// (AccessTokenProvider của thư viện SignalR chính thức có thể vi phạm điều này, xem SignalRLibraryTest.)
+    /// (AccessTokenProvider của thư viện SignalR chính thức chạy trên thread khác, nên SignalRLibraryTest phải chuyển
+    /// lời gọi về main thread trước, xem GetAccessTokenOnMainThreadAsync.)
     /// </summary>
     private Task<ApiError?> RefreshTokensAsync()
     {

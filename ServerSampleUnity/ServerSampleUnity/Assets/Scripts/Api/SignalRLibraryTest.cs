@@ -81,10 +81,9 @@ public partial class SignalRLibraryTest : MonoBehaviour
             .WithUrl(baseUrl.TrimEnd('/') + "/hubs/game", options =>
             {
                 // Mỗi lần kết nối (kể cả tự kết nối lại), thư viện xin một token còn hạn.
-                // KHÁC HubClient: thư viện dùng ConfigureAwait(false), nên lúc tự kết nối lại nó gọi hàm này trên THREAD
-                // KHÁC main thread. Nếu lúc đó token cần làm mới, ApiClient dùng UnityWebRequest (chỉ chạy trên main thread)
-                // sẽ lỗi. Muốn chắc chắn thì phải chuyển lời gọi này về main thread trước.
-                options.AccessTokenProvider = () => _api.GetValidAccessTokenAsync();
+                // KHÁC HubClient: lúc tự kết nối lại, thư viện gọi hàm này trên THREAD KHÁC main thread, nên phải
+                // chuyển về main thread trước khi đụng tới ApiClient (xem GetAccessTokenOnMainThreadAsync).
+                options.AccessTokenProvider = GetAccessTokenOnMainThreadAsync;
                 // Đi thẳng WebSocket, bỏ bước negotiate (POST /hubs/game/negotiate), giống HubClient tự viết.
                 options.Transports = HttpTransportType.WebSockets;
                 options.SkipNegotiation = true;
@@ -184,6 +183,39 @@ public partial class SignalRLibraryTest : MonoBehaviour
     private void RunOnMainThread(Action action)
     {
         _mainThread.Post(_ => action(), null);
+    }
+
+    /// <summary>
+    /// AccessTokenProvider của thư viện. Thư viện dùng ConfigureAwait(false) ở mọi chỗ, nên khi TỰ KẾT NỐI LẠI
+    /// nó gọi hàm này trên thread pool. Nếu lúc đó token sắp hết hạn, ApiClient phải làm mới token bằng
+    /// UnityWebRequest, mà UnityWebRequest chỉ chạy trên main thread: gọi thẳng thì ném lỗi, kết nối lại thất bại.
+    /// (ApiClient cũng không có lock cho _refreshTask, vì nó giả định mọi lời gọi đều từ main thread.)
+    ///
+    /// Cách làm: Post việc xin token về main thread, rồi trả cho thư viện một Task "hứa sẽ có kết quả".
+    /// TaskCompletionSource là cái Task đó: ta tự quyết định lúc nào nó xong (SetResult) hay lỗi (SetException).
+    /// Thư viện cứ await Task này trên thread của nó, còn việc thật chạy ở main thread.
+    /// </summary>
+    private Task<string?> GetAccessTokenOnMainThreadAsync()
+    {
+        // RunContinuationsAsynchronously: lúc SetResult, đoạn code thư viện đang chờ phía sau KHÔNG chạy ké
+        // trên main thread của Unity (sẽ làm giật game), mà được đẩy sang thread pool.
+        var completion = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _mainThread.Post(async _ =>
+        {
+            // Tới đây đã ở main thread; các await bên trong ApiClient cũng quay về main thread.
+            try
+            {
+                completion.SetResult(await _api.GetValidAccessTokenAsync());
+            }
+            catch (Exception e)
+            {
+                // Không làm mới được (mất mạng...): báo lỗi cho thư viện, nó sẽ thử kết nối lại lần sau.
+                completion.SetException(e);
+            }
+        }, null);
+
+        return completion.Task;
     }
 
     private void AddLine(string line)
