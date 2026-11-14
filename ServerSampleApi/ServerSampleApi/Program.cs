@@ -170,6 +170,9 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 // Scoped (không phải Singleton) vì LeaderboardService dùng GameDbContext, mà GameDbContext là Scoped.
 builder.Services.AddScoped<LeaderboardService>();
 
+// Luật của clan (ClansController và GameHub cùng dùng). Scoped vì dùng GameDbContext.
+builder.Services.AddScoped<ClanService>();
+
 // Redis chưa có bảng xếp hạng thì dựng lại từ PostgreSQL, chạy NGẦM khi server khởi động (không làm server chờ).
 builder.Services.AddHostedService<LeaderboardStartupRebuildService>();
 

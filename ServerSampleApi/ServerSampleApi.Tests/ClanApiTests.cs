@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
-using ServerSampleApi.Controllers;
 using ServerSampleApi.Dtos;
+using ServerSampleApi.Services;
 
 namespace ServerSampleApi.Tests;
 
@@ -28,7 +28,7 @@ public class ClanApiTests : IClassFixture<ApiFactory>
         Assert.Equal(name, clan!.Name); // khoảng trắng hai đầu đã bị bỏ
         Assert.Equal(alice.PlayerId, clan.LeaderId);
         Assert.Equal(1, clan.MemberCount);
-        Assert.Equal(ClansController.MaxMembers, clan.MaxMembers);
+        Assert.Equal(ClanService.MaxMembers, clan.MaxMembers);
         ClanMemberResponse member = Assert.Single(clan.Members);
         Assert.Equal(alice.PlayerId, member.PlayerId);
         Assert.True(member.IsLeader);
@@ -155,7 +155,7 @@ public class ClanApiTests : IClassFixture<ApiFactory>
         ClanResponse clan = await CreateClanAsync(leader, NewClanName());
 
         // Lấp đầy clan, chỉ chừa MỘT chỗ trống.
-        TestPlayer[] fillers = await Task.WhenAll(Enumerable.Range(0, ClansController.MaxMembers - 2)
+        TestPlayer[] fillers = await Task.WhenAll(Enumerable.Range(0, ClanService.MaxMembers - 2)
             .Select(_ => TestHelper.RegisterNewPlayerAsync(_factory)));
         foreach (TestPlayer filler in fillers)
         {
@@ -172,8 +172,8 @@ public class ClanApiTests : IClassFixture<ApiFactory>
         Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK);
         Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Conflict);
         ClanResponse? full = await leader.Client.GetFromJsonAsync<ClanResponse>($"/api/clans/{clan.Id}");
-        Assert.Equal(ClansController.MaxMembers, full!.MemberCount);
-        Assert.Equal(ClansController.MaxMembers, full.Members.Count);
+        Assert.Equal(ClanService.MaxMembers, full!.MemberCount);
+        Assert.Equal(ClanService.MaxMembers, full.Members.Count);
     }
 
     [Fact]

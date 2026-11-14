@@ -36,12 +36,14 @@ namespace ServerSampleApi.Hubs
 
         private readonly GameDbContext _db;
         private readonly PresenceService _presence;
+        private readonly ClanService _clans;
         private readonly ILogger<GameHub> _logger;
 
-        public GameHub(GameDbContext db, PresenceService presence, ILogger<GameHub> logger)
+        public GameHub(GameDbContext db, PresenceService presence, ClanService clans, ILogger<GameHub> logger)
         {
             _db = db;
             _presence = presence;
+            _clans = clans;
             _logger = logger;
         }
 
@@ -159,15 +161,9 @@ namespace ServerSampleApi.Hubs
         {
             ChatMessage message = CreateChatMessage(text);
 
-            // Mọi thành viên cùng clan với người gửi, bằng MỘT câu SQL:
-            //   SELECT m."PlayerId" FROM "ClanMembers" m
-            //   WHERE EXISTS (SELECT 1 FROM "ClanMembers" me WHERE me."PlayerId" = @sender AND me."ClanId" = m."ClanId")
-            // Người gửi không ở clan nào thì danh sách rỗng.
-            Guid senderId = message.PlayerId;
-            List<string> memberIds = await _db.ClanMembers
-                .Where(m => _db.ClanMembers.Any(me => me.PlayerId == senderId && me.ClanId == m.ClanId))
-                .Select(m => m.PlayerId.ToString())
-                .ToListAsync();
+            // Mọi thành viên cùng clan với người gửi (luật "ai thuộc clan nào" nằm trong ClanService,
+            // dùng chung với ClansController). Người gửi không ở clan nào thì danh sách rỗng.
+            List<string> memberIds = await _clans.GetClanMateIdsAsync(message.PlayerId);
 
             if (memberIds.Count == 0)
             {
