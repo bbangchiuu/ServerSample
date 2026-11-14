@@ -4,6 +4,8 @@ using System.Collections.Generic;
 
 // Các class dữ liệu đi qua HUB khi dùng THƯ VIỆN SignalR chính thức (SignalRLibraryTest),
 // dùng được với CẢ HAI giao thức JSON và MessagePack.
+// Lưu ý: MessagePack kiểu contractless (không [MessagePackObject]) sinh code lúc chạy (Reflection.Emit), chỉ chạy trong
+// Editor/Mono. Build IL2CPP (iOS, đa số Android) phải sinh formatter trước bằng mpc, hoặc dùng JSON.
 //
 // Vì sao không dùng lại ChatMessage, OnlinePlayer... trong ApiModels.cs?
 // Các class đó viết cho JsonUtility (field camelCase, ngày giờ là string). MessagePack của server lại gửi:

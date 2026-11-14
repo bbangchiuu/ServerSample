@@ -192,7 +192,8 @@ public class HubClient
     /// Gọi một hàm KHÔNG có tham số trên server và lấy GIÁ TRỊ TRẢ VỀ của nó, ví dụ:
     ///     OnlinePlayersResponse list = await hub.InvokeAsync&lt;OnlinePlayersResponse&gt;("GetOnlinePlayers");
     /// Server trả {"type":3,"invocationId":"5","result":{...}}: phần "result" được đọc thành TResult.
-    /// TResult phải là một class [Serializable] (JsonUtility không đọc được JSON mà gốc là mảng hay số).
+    /// TResult là class tự định nghĩa thì phải có [Serializable]. (Không lo "JsonUtility không đọc được JSON gốc là mảng":
+    /// gốc JSON ở đây là cả gói Completion, "result" chỉ là một field bên trong.)
     /// </summary>
     public async Task<TResult> InvokeAsync<TResult>(string target)
     {
@@ -523,8 +524,9 @@ public class HubClient
     /// <summary>
     /// Mỗi giây kiểm tra một lần:
     ///  - 15 giây chưa GỬI gì thì gửi ping: server cần nghe thấy client ít nhất 30 giây một lần, nếu không sẽ ngắt kết nối.
-    ///  - 30 giây chưa NHẬN được gì thì coi như server đã chết (server timeout). Server luôn gửi ping mỗi 15 giây,
-    ///    nên im lặng gấp đôi thời gian đó nghĩa là có chuyện: mạng chết "im lặng", server treo...
+    ///  - 30 giây chưa NHẬN được gì thì coi như server đã chết (server timeout). Server gửi ping nếu 15 giây chưa
+    ///    gửi gì (KeepAliveInterval), nên kết nối khoẻ thì ít nhất 15 giây lại có dữ liệu; im lặng gấp đôi thời gian đó
+    ///    nghĩa là có chuyện: mạng chết "im lặng", server treo...
     /// </summary>
     private async Task KeepAliveLoopAsync(CancellationToken cancellationToken)
     {

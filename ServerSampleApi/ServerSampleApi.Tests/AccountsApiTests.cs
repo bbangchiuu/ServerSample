@@ -127,7 +127,8 @@ public class AccountsApiTests : IClassFixture<ApiFactory>
             new RegisterRequest { Username = TestHelper.NewUsername(), Password = TestHelper.Password });
         AccountResponse? account = await response.Content.ReadFromJsonAsync<AccountResponse>();
 
-        // JWT luôn có đúng 3 phần: header.payload.signature
+        // JWT đã ký (JWS, loại server này phát ra) có đúng 3 phần: header.payload.signature
+        // (JWT mã hoá - JWE - có 5 phần, server này không dùng.)
         Assert.Equal(3, account!.AccessToken.Split('.').Length);
     }
 

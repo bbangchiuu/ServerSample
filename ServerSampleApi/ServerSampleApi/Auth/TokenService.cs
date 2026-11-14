@@ -15,8 +15,9 @@ namespace ServerSampleApi.Auth
     /// JWT gồm 3 phần, nối bằng dấu chấm:  HEADER.PAYLOAD.SIGNATURE
     ///  - Header:    thuật toán ký, ví dụ {"alg":"HS256","typ":"JWT"}
     ///  - Payload:   các "claim" (thông tin về người chơi), ví dụ {"sub":"&lt;playerId&gt;","exp":1767225600,...}
-    ///  - Signature: chữ ký = HMAC-SHA256(header + payload, SigningKey)
-    /// Header và payload chỉ là JSON mã hoá Base64, AI CŨNG ĐỌC ĐƯỢC, không phải mã hoá bí mật.
+    ///  - Signature: chữ ký = HMAC-SHA256(base64url(header) + "." + base64url(payload), SigningKey)
+    /// Header và payload chỉ là JSON mã hoá Base64Url (Base64 thay "+/" bằng "-_", bỏ "="), AI CŨNG ĐỌC ĐƯỢC,
+    /// không phải mã hoá bí mật.
     /// Thứ bảo vệ token là chữ ký: sửa dù chỉ một ký tự trong payload (ví dụ đổi "sub" thành người khác)
     /// thì chữ ký không còn khớp, và không có SigningKey thì không ký lại được.
     ///
@@ -51,7 +52,7 @@ namespace ServerSampleApi.Auth
                 Subject = new ClaimsIdentity(new[]
                 {
                     // "sub" (subject): token này nói về AI. Account.Id cũng chính là PlayerId.
-                    // Bước 2 server sẽ lấy playerId từ đây, thay vì tin playerId client gửi trên URL.
+                    // Server lấy playerId từ đây (User.GetPlayerId()), không tin playerId client gửi lên.
                     new Claim(JwtRegisteredClaimNames.Sub, account.Id.ToString()),
                     new Claim(JwtRegisteredClaimNames.UniqueName, account.Username),
                     // "jti" (JWT ID): mã riêng của từng token, dùng sau này khi cần thu hồi một token cụ thể.

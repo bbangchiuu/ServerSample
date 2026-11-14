@@ -50,8 +50,9 @@ namespace ServerSampleApi.Auth
         {
             DateTime now = DateTime.UtcNow;
 
-            // Băm TRƯỚC rồi mới đưa vào câu truy vấn: EF Core dịch lambda bên dưới sang SQL,
-            // mà PostgreSQL không biết hàm Hash() của C# là gì.
+            // Băm trước ra biến riêng cho dễ đọc. (Viết thẳng t.TokenHash == Hash(token) trong lambda cũng chạy được:
+            // phần không dính tới "t" được EF tính bằng C# rồi gửi lên làm tham số @p. EF chỉ báo lỗi khi hàm C#
+            // áp lên CỘT, ví dụ Hash(t.TokenHash), vì PostgreSQL không có hàm đó.)
             string tokenHash = Hash(token);
             RefreshTokenModel? stored = await _db.RefreshTokens
                 .AsNoTracking()

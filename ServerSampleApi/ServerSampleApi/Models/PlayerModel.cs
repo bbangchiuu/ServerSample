@@ -20,7 +20,8 @@ namespace ServerSampleApi.Models
 
         /// <summary>
         /// Túi đồ: các dòng của bảng "InventoryItems" thuộc về người chơi này (quan hệ một-nhiều).
-        /// EF Core chỉ nạp danh sách này khi được yêu cầu (Include), bình thường nó rỗng.
+        /// EF Core KHÔNG tự nạp danh sách này (không có lazy loading): muốn có thì dùng Include, nếu không thì nó rỗng.
+        /// (Ngoại lệ: các dòng InventoryItems của người này đã được đọc vào CÙNG DbContext thì EF tự gắn chúng vào đây.)
         /// </summary>
         public List<InventoryItemModel> Inventory { get; set; } = new();
     }

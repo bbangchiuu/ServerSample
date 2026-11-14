@@ -103,14 +103,16 @@ namespace ServerSampleApi.Controllers
             await _db.SaveChangesAsync();
 
             // Trả về profile sau khi sửa, để client cập nhật giao diện mà không cần gọi GET thêm lần nữa.
-            // Đồng thời đẩy profile mới xuống các thiết bị KHÁC của người này đang mở game.
+            // Đồng thời đẩy profile mới xuống MỌI kết nối hub của người này (gồm cả thiết bị vừa gọi, nếu nó đang mở hub).
             PlayerProfileResponse profile = ToProfileResponse(player);
             await NotifyProfileChangedAsync(profile);
             return Ok(profile);
         }
 
         // POST /api/players/me/daily-reward
-        // POST vì đây là một HÀNH ĐỘNG: gửi 2 lần thì lần 2 bị từ chối, kết quả khác lần 1 (không idempotent).
+        // POST vì đây là một HÀNH ĐỘNG có tác dụng phụ (cộng vàng, thêm potion), không phải "đặt giá trị này" như PUT.
+        // (Idempotent xét theo TRẠNG THÁI server, không theo response: lần 2 trong ngày trả 409 nhưng dữ liệu không đổi
+        // thêm. Response khác nhau không có nghĩa là không idempotent.)
         [HttpPost("daily-reward")]
         [ProducesResponseType(typeof(PlayerProfileResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -135,8 +137,9 @@ namespace ServerSampleApi.Controllers
             // Vì sao an toàn khi 20 request đến cùng lúc:
             //  - Điều kiện "hôm nay chưa nhận" được kiểm tra NGAY TRONG câu UPDATE, không còn khe hở
             //    giữa "kiểm tra" và "ghi" như khi đọc ra C# rồi mới quyết định.
-            //  - PostgreSQL khoá dòng của người chơi trong lúc UPDATE: request thứ hai phải chờ request đầu
-            //    xong, rồi kiểm tra lại điều kiện, lúc đó thấy ngày đã là hôm nay nên không cập nhật dòng nào.
+            //  - PostgreSQL khoá dòng của người chơi từ lúc UPDATE tới khi transaction kết thúc (Commit/Rollback):
+            //    request thứ hai phải chờ request đầu COMMIT xong, rồi kiểm tra lại điều kiện, lúc đó thấy ngày đã là
+            //    hôm nay nên không cập nhật dòng nào.
             //  - "Gold" + 100 được tính BÊN TRONG database, nên không còn lost update.
             int updatedRows = await _db.Players
                 .Where(p => p.Id == playerId
@@ -205,6 +208,9 @@ namespace ServerSampleApi.Controllers
         /// vàng và potion đã lưu chắc chắn trong PostgreSQL rồi. Nếu trả 500 ở đây, client tưởng nhận thưởng
         /// thất bại và bấm lại, rồi bị báo "hôm nay đã nhận", rất khó hiểu. Bảng xếp hạng chậm cập nhật
         /// một chút vẫn hơn làm hỏng chức năng chính.
+        ///
+        /// Lưu ý: chỉ RIÊNG bước này được bảo vệ. Các lệnh gửi SignalR phía sau (ProfileChanged, LeaderboardChanged)
+        /// cũng đi qua Redis (backplane), nên Redis sập thì chúng vẫn ném lỗi và client vẫn nhận 500.
         /// </summary>
         private async Task<LeaderboardEntry?> UpdateLeaderboardAsync(PlayerModel player)
         {

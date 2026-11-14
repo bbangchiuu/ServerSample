@@ -8,9 +8,11 @@ namespace ServerSample.Server.Networking;
 /// <summary>
 /// Định kỳ ngắt các client "chết".
 ///
-/// Khi mạng điện thoại mất sóng hoặc app bị kill, server thường KHÔNG nhận được tín hiệu đóng kết nối nào,
-/// socket cứ treo mãi và chiếm tài nguyên. Cách duy nhất để biết là: client phải gửi Ping đều đặn,
-/// quá HeartbeatTimeout không thấy gì thì server tự ngắt.
+/// Khi điện thoại mất sóng, tắt nguồn đột ngột, hoặc app bị treo / bị đưa xuống nền (suspend), server KHÔNG nhận được
+/// tín hiệu đóng kết nối nào (app bị kill thì khác: hệ điều hành của máy client vẫn tự gửi FIN/RST),
+/// socket cứ treo mãi và chiếm tài nguyên. Cách thực tế nhất là heartbeat: client gửi Ping đều đặn,
+/// quá HeartbeatTimeout không thấy gì thì server tự ngắt. (TCP keepalive cũng có, nhưng mặc định khoảng 2 giờ,
+/// quá chậm cho game.)
 /// </summary>
 public sealed class HeartbeatMonitor(
     SessionManager sessions,

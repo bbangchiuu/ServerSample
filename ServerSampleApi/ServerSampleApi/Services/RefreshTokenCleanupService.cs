@@ -37,11 +37,13 @@ namespace ServerSampleApi.Services
 
             TimeSpan interval = TimeSpan.FromHours(_configuration.GetValue("RefreshTokens:CleanupIntervalHours", defaultValue: 24.0));
 
-            // Nhường luồng ngay lập tức, để phần còn lại chắc chắn chạy ngầm và server mở cổng luôn.
+            // Từ .NET 10, toàn bộ ExecuteAsync đã chạy ở luồng nền nên không chặn server khởi động.
+            // Task.Yield chỉ còn để an toàn với .NET cũ (trước .NET 10, phần trước "await" đầu tiên chặn khởi động).
             await Task.Yield();
 
             // PeriodicTimer: "đồng hồ báo thức" lặp lại. WaitForNextTickAsync chờ tới lần reo tiếp theo
-            // (không giữ thread trong lúc chờ), trả về false hoặc ném OperationCanceledException khi server tắt.
+            // (không giữ thread trong lúc chờ). Server tắt (stoppingToken bị huỷ) thì nó ném OperationCanceledException;
+            // nó chỉ trả về false khi chính timer bị Dispose.
             using var timer = new PeriodicTimer(interval);
             try
             {

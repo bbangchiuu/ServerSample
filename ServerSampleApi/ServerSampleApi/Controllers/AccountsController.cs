@@ -37,7 +37,7 @@ namespace ServerSampleApi.Controllers
         // POST /api/accounts/register
         // async Task<...>: đọc/ghi database là chờ mạng, nên dùng await để không giữ thread trong lúc chờ.
         [HttpPost("register")]
-        [EnableRateLimiting(RateLimitingOptions.RegisterPolicy)] // mỗi IP tối đa 10 tài khoản mỗi giờ (xem appsettings.json)
+        [EnableRateLimiting(RateLimitingOptions.RegisterPolicy)] // mỗi IP tối đa 10 lần gọi đăng ký (kể cả lần lỗi) mỗi giờ (xem appsettings.json)
         [ProducesResponseType(typeof(AccountResponse), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -121,6 +121,8 @@ namespace ServerSampleApi.Controllers
             {
                 // Sai tên hay sai mật khẩu đều trả CÙNG một lỗi. Nếu báo riêng "tên không tồn tại",
                 // kẻ xấu sẽ dò ra được danh sách tài khoản có thật để tấn công tiếp.
+                // (Đây chỉ là một lớp: tên không tồn tại thì không phải băm mật khẩu nên trả lời nhanh hơn một chút,
+                // và /register trả 409 khi tên đã có. Rate limit mới là lớp chặn chính.)
                 return Problem(
                     title: "Invalid username or password",
                     statusCode: StatusCodes.Status401Unauthorized);
@@ -163,7 +165,7 @@ namespace ServerSampleApi.Controllers
 
         // POST /api/accounts/logout
         // Thu hồi refresh token: từ giờ không làm mới được nữa. Access token đang có vẫn dùng được tới lúc hết hạn
-        // (tối đa AccessTokenMinutes), vì server không lưu JWT nên không thu hồi được. Đó là lý do access token phải ngắn.
+        // (tối đa AccessTokenMinutes, cộng thêm ClockSkew 30 giây), vì server không lưu JWT nên không thu hồi được. Đó là lý do access token phải ngắn.
         // Luôn trả 204, kể cả khi token không có thật: kết quả mà client muốn ("token này không dùng được nữa") đã đúng rồi.
         [HttpPost("logout")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]

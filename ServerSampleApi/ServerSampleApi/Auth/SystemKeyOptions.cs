@@ -26,7 +26,8 @@ namespace ServerSampleApi.Auth
         /// So key client gửi lên với key thật.
         /// Dùng FixedTimeEquals thay vì ==: phép == dừng ngay ở ký tự sai ĐẦU TIÊN, nên đoán đúng càng nhiều ký tự đầu
         /// thì server trả lời càng chậm một chút. Kẻ xấu đo thời gian đó để dò ra key từng ký tự một (timing attack).
-        /// FixedTimeEquals luôn so HẾT, đúng hay sai đều tốn cùng một thời gian.
+        /// FixedTimeEquals so HẾT các byte (không dừng ở byte sai đầu tiên), nên khi hai key cùng độ dài thì đúng hay sai
+        /// đều tốn cùng một thời gian. Khác độ dài thì nó trả false ngay: chỉ lộ độ dài key, không lộ nội dung.
         /// </summary>
         public bool IsValid(string? sentKey)
         {

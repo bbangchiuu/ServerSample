@@ -8,7 +8,8 @@ namespace ServerSampleApi.Data
     /// mỗi cột có kiểu và giới hạn gì. Đồng thời là cửa ngõ để đọc/ghi dữ liệu:
     ///     db.Players.Find(id), db.Accounts.Add(account), db.SaveChanges()...
     ///
-    /// Từ class này, lệnh "dotnet ef migrations add" sinh ra code SQL tạo bảng (migration).
+    /// Từ class này, lệnh "dotnet ef migrations add" sinh ra file migration bằng C# (migrationBuilder.CreateTable...).
+    /// Lúc "dotnet ef database update" (hoặc "dotnet ef migrations script"), Npgsql mới dịch nó thành câu SQL tạo bảng.
     /// </summary>
     public class GameDbContext : DbContext
     {
@@ -31,7 +32,7 @@ namespace ServerSampleApi.Data
 
         public DbSet<ClanMemberModel> ClanMembers => Set<ClanMemberModel>();
 
-        /// <summary>Tên unique index trên Clans.Name: dùng để biết lỗi "trùng" là do trùng tên clan (xem ClansController).</summary>
+        /// <summary>Tên unique index trên Clans.Name: dùng để biết lỗi "trùng" là do trùng tên clan (xem ClanService.CreateAsync).</summary>
         public const string ClanNameIndex = "IX_Clans_Name";
 
         /// <summary>Mô tả chi tiết từng bảng: khoá chính, khoá ngoại, độ dài cột, ràng buộc...</summary>

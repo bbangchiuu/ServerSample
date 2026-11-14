@@ -8,6 +8,7 @@ namespace ServerSampleApi.Services
     /// server phải chờ việc này xong mới mở cổng. Docker tắt thì Redis không trả lời, thư viện chờ hết thời gian
     /// (5 giây kết nối + 5 giây chờ lệnh), nên server treo khoảng 10 giây. Bảng xếp hạng to thì còn lâu hơn.
     /// Việc phụ không được làm chậm việc chính (mở cổng phục vụ người chơi).
+    /// (Riêng bước KẾT NỐI Redis thì vẫn xảy ra lúc khởi động, vì PresenceHeartbeatService cần nó, xem Program.cs.)
     ///
     /// BackgroundService: ASP.NET Core tự gọi ExecuteAsync một lần khi server khởi động và KHÔNG chờ nó xong.
     /// Đăng ký bằng builder.Services.AddHostedService&lt;...&gt;() trong Program.cs.
@@ -39,7 +40,8 @@ namespace ServerSampleApi.Services
                 return;
             }
 
-            // Nhường luồng ngay lập tức, để phần còn lại chắc chắn chạy ngầm và server mở cổng luôn.
+            // Từ .NET 10, toàn bộ ExecuteAsync đã chạy ở luồng nền nên không chặn server khởi động.
+            // Task.Yield chỉ còn để an toàn với .NET cũ (trước .NET 10, phần trước "await" đầu tiên chặn khởi động).
             await Task.Yield();
 
             try

@@ -23,7 +23,8 @@ public sealed class TcpServerService(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Nghe trên IPv6 ở chế độ dual-mode: nhận được cả client IPv4 lẫn IPv6.
-        // Cần cho game mobile: một số mạng di động chỉ có IPv6 (Apple bắt buộc app phải chạy được trên mạng đó).
+        // Nhờ vậy nhận được cả client có IPv6 thật. (Yêu cầu "chạy được trên mạng chỉ có IPv6" của Apple là cho CLIENT:
+        // không hardcode IPv4. Mạng đó có NAT64 nên server chỉ nghe IPv4 vẫn nhận được các client này.)
         // Client IPv4 sẽ hiện địa chỉ dạng IPv4-mapped, ví dụ [::ffff:127.0.0.1]:54321.
         var listener = new TcpListener(IPAddress.IPv6Any, _options.Port);
         listener.Server.DualMode = true;

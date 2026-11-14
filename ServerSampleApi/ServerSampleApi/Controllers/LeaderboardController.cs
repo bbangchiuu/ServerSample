@@ -36,7 +36,10 @@ namespace ServerSampleApi.Controllers
         {
             List<LeaderboardEntry> top = await _leaderboard.GetTopAsync(count);
 
-            // Lấy tên của cả top bằng MỘT câu SQL: SELECT "Id", "DisplayName" FROM "Players" WHERE "Id" IN (...)
+            // Lấy tên của cả top bằng MỘT câu SQL: SELECT <mọi cột> FROM "Players" WHERE "Id" = ANY (@playerIds)
+            // (Npgsql dịch Contains thành "= ANY" với tham số là một mảng.)
+            // Lưu ý: hai lambda của ToDictionaryAsync chạy trong C# SAU khi đã đọc nguyên dòng, nên SQL vẫn đọc mọi cột.
+            // Muốn chỉ đọc 2 cột thì thêm .Select(p => new { p.Id, p.DisplayName }) trước ToDictionaryAsync.
             // Không gọi FindAsync trong vòng lặp, vì như vậy là 10 người thì 10 câu SQL (lỗi "N+1 query").
             List<Guid> playerIds = top.Select(entry => entry.PlayerId).ToList();
             Dictionary<Guid, string> displayNames = await _db.Players

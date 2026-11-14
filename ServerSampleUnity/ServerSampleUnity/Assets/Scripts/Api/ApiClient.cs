@@ -159,7 +159,9 @@ public class ApiClient
         Send("GET", "/api/players/me/inventory", null, requiresLogin: true, onSuccess, onError);
 
     public void UseItem(string itemId, Action<InventoryResponse> onSuccess, Action<ApiError>? onError = null) =>
-        // EscapeURL: mã hoá ký tự đặc biệt (dấu cách, /, ?...) để không làm hỏng đường dẫn.
+        // EscapeURL: mã hoá ký tự đặc biệt (/, ?, #...) thành %XX để không làm hỏng đường dẫn.
+        // Lưu ý: nó đổi dấu cách thành "+" (kiểu form), chỉ đúng trong query string; trong path server KHÔNG đổi "+"
+        // lại thành dấu cách (id có thể chứa dấu cách thì dùng Uri.EscapeDataString).
         Send("POST", $"/api/players/me/inventory/{UnityWebRequest.EscapeURL(itemId)}/use", null,
             requiresLogin: true, onSuccess, onError);
 
@@ -267,12 +269,14 @@ public class ApiClient
     /// <summary>
     /// Làm mới token. Trả về null nếu thành công, hoặc lỗi nếu thất bại.
     ///
-    /// Nhiều request cùng gặp 401 một lúc (ví dụ bấm B: 20 request nhận thưởng cùng lúc) thì chỉ gửi MỘT request làm mới,
+    /// Nhiều request cùng gặp 401 một lúc (ví dụ 20 request nhận thưởng gửi cùng lúc) thì chỉ gửi MỘT request làm mới,
     /// các request kia chờ chung kết quả của nó. Nếu mỗi request tự làm mới, cùng một refresh token sẽ bị gửi lên nhiều lần:
     /// server tưởng token bị đánh cắp và thu hồi TẤT CẢ token, người chơi bị đăng xuất.
     ///
     /// Không cần lock: mọi đoạn code ở đây đều chạy trên main thread của Unity (sau mỗi await, Unity đưa code
     /// quay về main thread), nên không có hai đoạn nào chạy song song để tranh nhau _refreshTask.
+    /// Điều kiện: mọi lời gọi vào ApiClient (kể cả GetValidAccessTokenAsync) phải BẮT ĐẦU từ main thread.
+    /// (AccessTokenProvider của thư viện SignalR chính thức có thể vi phạm điều này, xem SignalRLibraryTest.)
     /// </summary>
     private Task<ApiError?> RefreshTokensAsync()
     {
@@ -383,8 +387,10 @@ public class ApiClient
                     }
 
                 case UnityWebRequest.Result.ProtocolError: // server có trả lời, nhưng là lỗi 4xx/5xx
-                    // 401 do token sai/hết hạn thì body rỗng, lý do nằm trong header WWW-Authenticate,
+                    // 401 do token sai/hết hạn: body chỉ là ProblemDetails chung chung ("Unauthorized", do
+                    // UseStatusCodePages của server thêm vào). Lý do cụ thể nằm trong header WWW-Authenticate,
                     // ví dụ: Bearer error="invalid_token", error_description="The token expired at ..."
+                    // Dòng dưới chỉ lấy header khi body RỖNG (server khác, hoặc server trước khi có UseStatusCodePages).
                     string rawBody = string.IsNullOrEmpty(text) ? request.GetResponseHeader("WWW-Authenticate") ?? "" : text;
                     return (default!, new ApiError(request.responseCode, ReadProblemMessage(text, request.error), rawBody));
 
@@ -418,7 +424,7 @@ public class ApiClient
         }
         catch (ArgumentException)
         {
-            // Body rỗng hoặc không phải JSON (ví dụ lỗi 405 không có body).
+            // Body rỗng hoặc không phải JSON (ví dụ trang lỗi HTML của proxy, hoặc server khác không trả ProblemDetails).
         }
 
         return fallback;

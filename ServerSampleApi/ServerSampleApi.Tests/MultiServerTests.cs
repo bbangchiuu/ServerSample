@@ -24,7 +24,8 @@ public class MultiServerTests : IClassFixture<ApiFactory>
 
     /// <summary>
     /// Server thứ hai: WithWebHostBuilder tạo một server MỚI, chạy lại đúng cấu hình của ApiFactory (cùng database test,
-    /// cùng key Redis, cùng kênh backplane), nhưng là một process ảo khác với bộ nhớ SignalR riêng.
+    /// cùng key Redis, cùng kênh backplane), nhưng là một HOST khác (DI container, TestServer riêng) chạy trong CÙNG process:
+    /// các Singleton (danh sách kết nối SignalR, PresenceService...) là riêng, chỉ biến static là dùng chung.
     /// </summary>
     private WebApplicationFactory<Program> StartServer2() => _server1.WithWebHostBuilder(_ => { });
 

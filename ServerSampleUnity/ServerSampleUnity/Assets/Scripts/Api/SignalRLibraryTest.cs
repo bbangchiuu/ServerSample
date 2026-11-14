@@ -80,7 +80,10 @@ public partial class SignalRLibraryTest : MonoBehaviour
         IHubConnectionBuilder builder = new HubConnectionBuilder()
             .WithUrl(baseUrl.TrimEnd('/') + "/hubs/game", options =>
             {
-                // Mỗi lần kết nối (kể cả tự kết nối lại), thư viện xin một token còn hạn, giống HubClient.
+                // Mỗi lần kết nối (kể cả tự kết nối lại), thư viện xin một token còn hạn.
+                // KHÁC HubClient: thư viện dùng ConfigureAwait(false), nên lúc tự kết nối lại nó gọi hàm này trên THREAD
+                // KHÁC main thread. Nếu lúc đó token cần làm mới, ApiClient dùng UnityWebRequest (chỉ chạy trên main thread)
+                // sẽ lỗi. Muốn chắc chắn thì phải chuyển lời gọi này về main thread trước.
                 options.AccessTokenProvider = () => _api.GetValidAccessTokenAsync();
                 // Đi thẳng WebSocket, bỏ bước negotiate (POST /hubs/game/negotiate), giống HubClient tự viết.
                 options.Transports = HttpTransportType.WebSockets;
@@ -140,7 +143,9 @@ public partial class SignalRLibraryTest : MonoBehaviour
         try
         {
             await _connection.StartAsync();
-            // Sau await này đã quay về main thread: await trong MonoBehaviour tự quay về UnitySynchronizationContext.
+            // Sau await này đã quay về main thread: hàm này BẮT ĐẦU trên main thread, nên await nhớ
+            // UnitySynchronizationContext và quay lại đó. (Không phải vì nằm trong MonoBehaviour: các handler On(...)
+            // cùng class vẫn chạy trên thread khác.)
             AddLine($"Connected ({(useMessagePack ? "MessagePack" : "JSON")})");
 
             // Hàm hub CÓ giá trị trả về: InvokeAsync<T> chờ Completion từ server.
@@ -155,8 +160,9 @@ public partial class SignalRLibraryTest : MonoBehaviour
 
     private async void SendChat()
     {
-        // Ghi tên đầy đủ: HubClient.cs tự viết cũng có một enum tên HubConnectionState (ở global namespace),
-        // và C# tìm trong namespace hiện tại TRƯỚC các dòng using, nên viết tắt sẽ ra enum của HubClient.
+        // Ghi tên đầy đủ cho rõ là enum của thư viện. (Trước đây HubClient.cs có enum cùng tên HubConnectionState ở
+        // global namespace, và C# tìm trong namespace hiện tại TRƯỚC các dòng using. Giờ enum đó đã đổi tên thành
+        // HubConnectionStateCustom nên viết tắt cũng được.)
         if (_connection == null || _connection.State != Microsoft.AspNetCore.SignalR.Client.HubConnectionState.Connected)
         {
             return;

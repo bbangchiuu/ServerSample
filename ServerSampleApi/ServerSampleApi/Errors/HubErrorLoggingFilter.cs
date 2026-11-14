@@ -7,7 +7,8 @@ namespace ServerSampleApi.Errors
     /// giống middleware của HTTP. Hub không đi qua app.UseExceptionHandler(), nên lỗi bất ngờ trong hub cần chỗ bắt riêng.
     ///
     /// Chỉ GHI LOG rồi ném tiếp (throw;), không đổi gì ở phía client:
-    ///  - HubException (lỗi nghiệp vụ, ví dụ "You are not in a clan."): bỏ qua, client vẫn nhận nguyên văn.
+    ///  - HubException (lỗi nghiệp vụ, ví dụ "You are not in a clan."): bỏ qua, client vẫn nhận được thông báo
+    ///    (kèm phần đầu SignalR tự thêm, xem GameHub.CreateChatMessage).
     ///  - Lỗi khác (database sập, bug...): ghi log mức Error kèm tên hàm và người chơi. Client vẫn chỉ nhận thông báo
     ///    chung chung của SignalR, không lộ chi tiết bên trong.
     /// Đăng ký trong Program.cs: AddSignalR(options => options.AddFilter&lt;HubErrorLoggingFilter&gt;()).

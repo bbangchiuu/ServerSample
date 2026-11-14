@@ -21,7 +21,8 @@ namespace ServerSampleApi.Tests;
 /// </summary>
 public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    // Tên database phải là chữ thường, không có dấu "-": dùng Guid dạng "N" (32 ký tự hex liền nhau).
+    // Guid dạng "N" (32 ký tự hex liền nhau, chữ thường, không có "-"): tên gọn, gõ tay trong psql không cần ngoặc kép.
+    // (Không bắt buộc: EF Core/Npgsql tự đặt tên database trong ngoặc kép khi CREATE/DROP.)
     private readonly string _databaseName = $"game_test_{Guid.NewGuid():N}";
 
     private string ConnectionString =>
@@ -86,8 +87,9 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
             IConnectionMultiplexer redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
             await redis.GetDatabase().KeyDeleteAsync(LeaderboardKey); // DEL test:...:leaderboard:gold
-            // Xoá mọi key bắt đầu bằng prefix của lớp test này (KEYS chỉ dùng cho test, không dùng ở server thật:
-            // nó quét toàn bộ Redis và chặn mọi lệnh khác trong lúc quét).
+            // Xoá mọi key bắt đầu bằng prefix của lớp test này. IServer.Keys() của StackExchange.Redis tự dùng lệnh SCAN
+            // (quét từng đợt nhỏ, không chặn Redis như lệnh KEYS), nhưng vẫn phải duyệt TOÀN BỘ key trong Redis,
+            // nên chỉ dùng cho test/công cụ, không dùng trong request của server thật.
             foreach (EndPoint endpoint in redis.GetEndPoints())
             {
                 RedisKey[] keys = redis.GetServer(endpoint).Keys(pattern: PresenceKeyPrefix + ":*").ToArray();

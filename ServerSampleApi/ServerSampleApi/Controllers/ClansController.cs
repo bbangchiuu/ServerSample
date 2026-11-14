@@ -50,7 +50,8 @@ namespace ServerSampleApi.Controllers
         }
 
         // GET /api/clans/{clanId}
-        // ":guid": chỉ khớp khi đoạn đó là một Guid, nên "/api/clans/me" không bị hiểu nhầm là clanId = "me".
+        // ":guid": chỉ khớp khi đoạn đó là một Guid, nên "/api/clans/abc" bị 404 ngay ở bước routing.
+        // (Riêng "/api/clans/me" thì không cần nhờ nó: đoạn chữ cố định "me" luôn được ưu tiên hơn tham số {clanId}.)
         [HttpGet("{clanId:guid}")]
         [ProducesResponseType(typeof(ClanResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]

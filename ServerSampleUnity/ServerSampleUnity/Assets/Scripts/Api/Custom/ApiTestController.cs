@@ -154,7 +154,9 @@ public class ApiTestController : MonoBehaviour
 
     /// <summary>
     /// Gọi hàm hub GetOnlinePlayers (hàm CÓ giá trị trả về) và thay toàn bộ danh sách online bằng kết quả.
-    /// Gọi SAU khi đã kết nối và đăng ký PlayerOnline/PlayerOffline, để không lỡ ai vào/ra trong lúc chờ kết quả.
+    /// Gọi SAU khi đã kết nối và đăng ký PlayerOnline/PlayerOffline, để hạn chế lỡ ai vào/ra trong lúc chờ kết quả.
+    /// Vẫn còn một khe nhỏ: sự kiện tới TRƯỚC kết quả (server đã chụp danh sách rồi mới có người vào/ra) sẽ bị Clear()
+    /// bên dưới ghi đè, nên danh sách có thể lệch tới lần tải lại sau (chấp nhận được cho bản test).
     /// </summary>
     private async void RefreshOnlinePlayers()
     {

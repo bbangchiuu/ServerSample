@@ -38,7 +38,12 @@ namespace ServerSampleApi.Errors
         {
             if (exception is OperationCanceledException && httpContext.RequestAborted.IsCancellationRequested)
             {
-                // Client tự bỏ đi giữa chừng (tắt game, mất mạng): không phải lỗi của server, cũng không còn ai để trả lời.
+                // Client đóng kết nối giữa chừng (tắt game, hủy request): hệ điều hành của client gửi gói TCP FIN/RST,
+                // Kestrel thấy và hủy RequestAborted. Không phải lỗi của server, cũng không còn ai để trả lời.
+                // Lưu ý:
+                //  - Mất mạng ĐỘT NGỘT (rút dây, mất wifi) không gửi được gói nào, nên server không biết ngay.
+                //  - Nhánh này chỉ chạy khi code có truyền CancellationToken (= RequestAborted) xuống EF/Redis...;
+                //    nếu không, việc vẫn chạy hết và không có OperationCanceledException nào được ném ra.
                 _logger.LogInformation("Request {Method} {Path} was cancelled by the client",
                     httpContext.Request.Method, httpContext.Request.Path);
                 return true;

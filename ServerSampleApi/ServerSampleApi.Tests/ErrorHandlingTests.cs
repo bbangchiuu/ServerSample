@@ -8,8 +8,9 @@ using ServerSampleApi.Dtos;
 namespace ServerSampleApi.Tests;
 
 /// <summary>
-/// Test xử lý lỗi chung (GlobalExceptionHandler, UseStatusCodePages): lỗi nào cũng trả về ProblemDetails có traceId,
-/// và lỗi bất ngờ không để lộ chi tiết bên trong server.
+/// Test xử lý lỗi chung (GlobalExceptionHandler, UseStatusCodePages): lỗi bất ngờ (503), sai đường dẫn (404),
+/// thiếu token (401) đều trả về ProblemDetails có traceId, và lỗi bất ngờ không để lộ chi tiết bên trong server.
+/// (Riêng 429 của rate limiter tự ghi ProblemDetails trong OnRejected nên chưa có traceId.)
 /// </summary>
 public class ErrorHandlingTests : IClassFixture<ApiFactory>
 {

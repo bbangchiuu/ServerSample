@@ -35,7 +35,9 @@ namespace ServerSampleApi.Services
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            await Task.Yield(); // chạy ngầm, không bắt server chờ
+            // .NET 10 đã chạy ExecuteAsync ở luồng nền; Task.Yield chỉ để an toàn với .NET cũ.
+            // (Còn kết nối Redis thì đã xảy ra TRƯỚC đó, lúc tạo service này: constructor cần PresenceService.)
+            await Task.Yield();
             _logger.LogInformation("Presence server id: {ServerId}", _presence.ServerId);
 
             using var timer = new PeriodicTimer(PresenceService.HeartbeatInterval);

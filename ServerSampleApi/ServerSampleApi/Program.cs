@@ -26,7 +26,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 
 // Lỗi BẤT NGỜ (database sập, bug...) trong request HTTP: ghi log kèm traceId, trả ProblemDetails gọn gàng.
-// AddProblemDetails: mọi lỗi (kể cả 401, 404 không có nội dung) đều trả cùng một định dạng JSON, có traceId.
+// AddProblemDetails: đăng ký dịch vụ viết lỗi dạng ProblemDetails (có traceId). Kết hợp với UseExceptionHandler và
+// UseStatusCodePages bên dưới, lỗi 500/503 và cả 401, 404 không có nội dung đều trả cùng một định dạng JSON.
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
@@ -72,7 +73,8 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
             ValidAudience = jwt.Audience,
             IssuerSigningKey = jwt.CreateSigningKey(),
 
-            // Chỉ chấp nhận đúng thuật toán mình dùng để ký. Không để kẻ xấu gửi token "alg":"none" (không chữ ký).
+            // Chỉ chấp nhận đúng thuật toán mình dùng để ký (HS256): token ký bằng thuật toán khác bị từ chối.
+            // (Token "alg":"none" không có chữ ký thì vốn đã bị từ chối, vì RequireSignedTokens mặc định là true.)
             ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256 },
 
             // Đồng hồ các máy có thể lệch nhau vài giây, nên cho phép trễ hạn một chút.
@@ -115,7 +117,9 @@ builder.Services.AddOptions<RateLimitingOptions>()
 
 builder.Services.AddRateLimiter(options =>
 {
-    // Vượt giới hạn: trả 429 kèm Retry-After (số giây phải chờ) và ProblemDetails như mọi lỗi khác.
+    // Vượt giới hạn: trả 429 kèm Retry-After (số giây phải chờ) và body dạng ProblemDetails.
+    // Lưu ý: body này tự viết bằng WriteAsJsonAsync nên KHÔNG có traceId và Content-Type là application/json
+    // (khác các lỗi đi qua IProblemDetailsService).
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.OnRejected = async (context, cancellationToken) =>
     {
@@ -168,9 +172,12 @@ builder.Services.AddDbContext<GameDbContext>(options =>
 // Redis. Chuỗi kết nối "Redis" nằm trong appsettings.Development.json: "localhost:6379,abortConnect=false".
 //  - ConnectionMultiplexer giữ kết nối tới Redis, tự kết nối lại khi bị rớt. Tạo MỘT lần (Singleton) và dùng chung.
 //  - abortConnect=false: lúc server khởi động mà Redis chưa bật thì server VẪN chạy, thư viện tự thử kết nối lại
-//    ở phía sau. Thiếu nó thì Connect() ném lỗi và cả API không khởi động được chỉ vì thiếu bảng xếp hạng.
-// Dùng dạng "factory" (sp => ...) để chỉ kết nối khi có nơi cần dùng lần đầu, lúc đó cấu hình đã đầy đủ
-// (kể cả phần test ghi đè).
+//    ở phía sau. Thiếu nó thì Connect() ném lỗi và cả API không khởi động được chỉ vì Redis chưa bật
+//    (bảng xếp hạng, danh sách online).
+// Dùng dạng "factory" (sp => ...) để chỉ kết nối lúc được lấy ra lần đầu, lúc đó cấu hình đã đầy đủ (kể cả phần
+// test ghi đè). Thực tế "lần đầu" là ngay lúc server khởi động: PresenceHeartbeatService (hosted service, được tạo
+// khi khởi động) cần PresenceService, mà PresenceService cần IConnectionMultiplexer. Connect() là hàm đồng bộ,
+// nên Redis tắt thì server khởi động chậm đi một chút (chờ hết thời gian kết nối) rồi mới chạy tiếp.
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     ConnectionMultiplexer.Connect(sp.GetRequiredService<IConfiguration>().GetConnectionString("Redis")!));
 // Scoped (không phải Singleton) vì LeaderboardService dùng GameDbContext, mà GameDbContext là Scoped.
@@ -198,8 +205,10 @@ builder.Services.AddSignalR(options =>
     .AddMessagePackProtocol()
     // Redis backplane (package Microsoft.AspNetCore.SignalR.StackExchangeRedis): cho phép chạy NHIỀU server.
     // Không có nó, mỗi server chỉ biết các kết nối của CHÍNH nó: Clients.All trên server 1 không tới được
-    // người chơi đang nối vào server 2. Có nó, mỗi lần gửi (Clients.All, Clients.User...) server còn đăng tin lên
-    // Redis (PUBLISH), mọi server đều nghe (SUBSCRIBE) và gửi tiếp cho các kết nối của mình.
+    // người chơi đang nối vào server 2. Có nó, mỗi lần gửi (Clients.All, Clients.User...) server KHÔNG gửi thẳng
+    // mà đăng tin lên Redis (PUBLISH). Các server đang nghe kênh đó (SUBSCRIBE), KỂ CẢ chính server gửi, nhận lại tin
+    // rồi gửi cho các kết nối của mình. (Kênh của Clients.User chỉ được nghe bởi server đang giữ kết nối của người đó.)
+    // Hệ quả: Redis sập thì lệnh gửi ném lỗi, cả người chơi nối cùng server cũng không nhận được tin.
     .AddStackExchangeRedis();
 
 // Cấu hình backplane bằng Options pattern để đọc cấu hình LÚC CHẠY (test ghi đè được, giống JwtBearerOptions).

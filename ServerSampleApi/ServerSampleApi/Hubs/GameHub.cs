@@ -11,11 +11,12 @@ namespace ServerSampleApi.Hubs
     /// <summary>
     /// Kênh realtime của game (SignalR), địa chỉ /hubs/game.
     ///
-    /// Khác HTTP API: với API, client hỏi thì server mới trả lời, xong là đóng. Với hub, client mở MỘT kết nối
+    /// Khác HTTP API: với API, client hỏi thì server mới trả lời, xong lượt đó là hết; server KHÔNG tự gửi gì cho client
+    /// được (kết nối TCP bên dưới có thể được giữ lại, nhưng chỉ để client gửi request tiếp). Với hub, client mở MỘT kết nối
     /// (thường là WebSocket) và giữ nó suốt lúc chơi. Qua kết nối đó:
     ///  - client gọi hàm của server (client → server): ví dụ SendChatMessage bên dưới;
     ///  - server gọi hàm của client BẤT CỨ LÚC NÀO (server → client): ví dụ ReceiveChatMessage trong IGameClient.
-    /// Giống TCP server ở giai đoạn 1, nhưng SignalR lo hết: tách gói tin, chuyển JSON, tự chọn WebSocket hay cách khác,
+    /// Giống TCP server ở giai đoạn 1, nhưng SignalR lo hết: tách gói tin, chuyển đổi dữ liệu (JSON hoặc MessagePack), tự chọn WebSocket hay cách khác,
     /// kiểm tra đăng nhập, và danh sách các kết nối đang mở để gửi cho "tất cả" hay cho "một người".
     ///
     /// [Authorize]: phải có access token hợp lệ mới kết nối được, giống các API /me.
@@ -89,7 +90,8 @@ namespace ServerSampleApi.Hubs
         }
 
         /// <summary>
-        /// Chạy khi kết nối đóng: client tự ngắt, mất mạng, tắt game...
+        /// Chạy khi kết nối đóng: client tự ngắt, tắt game (chạy ngay), hoặc mất mạng đột ngột (chạy SAU khi hết
+        /// ClientTimeoutInterval = 30 giây không nghe gì từ client, vì mất mạng thì không có gói "đóng kết nối" nào tới).
         /// Chạy CẢ khi OnConnectedAsync đã Abort giữa chừng, nên chỉ trừ bộ đếm nếu lúc kết nối đã cộng:
         /// trừ khi chưa cộng thì bộ đếm của người đó bị lệch, có thể thành âm.
         /// </summary>
@@ -182,8 +184,10 @@ namespace ServerSampleApi.Hubs
             text = text?.Trim() ?? "";
             if (text.Length == 0 || text.Length > MaxChatMessageLength)
             {
-                // HubException: lỗi được gửi nguyên văn cho client. Lỗi kiểu khác thì client chỉ nhận
-                // thông báo chung chung, để không lộ chi tiết bên trong server.
+                // HubException: thông báo này ĐƯỢC gửi cho client, nằm sau phần SignalR tự thêm vào đầu:
+                // "An unexpected error occurred invoking 'X' on the server. HubException: <thông báo>"
+                // (vì vậy client nên tìm/cắt theo "HubException: ", đừng so nguyên chuỗi).
+                // Lỗi kiểu khác thì client chỉ nhận phần đầu chung chung, để không lộ chi tiết bên trong server.
                 throw new HubException($"Message must be 1-{MaxChatMessageLength} characters.");
             }
 
