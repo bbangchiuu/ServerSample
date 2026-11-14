@@ -13,6 +13,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using ServerSampleApi.Auth;
 using ServerSampleApi.Data;
+using ServerSampleApi.Errors;
 using ServerSampleApi.Hubs;
 using ServerSampleApi.Models;
 using ServerSampleApi.Services;
@@ -23,6 +24,11 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 
 builder.Services.AddControllers();
+
+// Lỗi BẤT NGỜ (database sập, bug...) trong request HTTP: ghi log kèm traceId, trả ProblemDetails gọn gàng.
+// AddProblemDetails: mọi lỗi (kể cả 401, 404 không có nội dung) đều trả cùng một định dạng JSON, có traceId.
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
 // Băm mật khẩu (thuật toán PBKDF2), có sẵn trong ASP.NET Core, không cần cài thêm package.
 builder.Services.AddSingleton<IPasswordHasher<AccountModel>, PasswordHasher<AccountModel>>();
@@ -181,6 +187,9 @@ builder.Services.AddSignalR(options =>
 {
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);     // server gửi ping
     options.ClientTimeoutInterval = TimeSpan.FromSeconds(30); // chờ client tối đa
+
+    // Lỗi bất ngờ trong hàm hub: ghi log mức Error kèm tên hàm và người chơi (hub không đi qua UseExceptionHandler).
+    options.AddFilter<HubErrorLoggingFilter>();
 })
     // Giao thức JSON có sẵn (AddSignalR tự đăng ký). Thêm MessagePack (package
     // Microsoft.AspNetCore.SignalR.Protocols.MessagePack): tin nhắn dạng nhị phân, nhỏ và nhanh hơn JSON.
@@ -290,6 +299,14 @@ builder.Services.AddOpenApi(options =>
 });
 
 var app = builder.Build();
+
+// ĐẦU TIÊN trong pipeline: bọc ngoài mọi middleware phía sau, nên exception ném ra ở bất cứ đâu bên dưới
+// (controller, service, database...) đều được GlobalExceptionHandler bắt.
+app.UseExceptionHandler();
+
+// Response lỗi KHÔNG có nội dung (404 do sai đường dẫn, 401 do thiếu token...): tự thêm ProblemDetails,
+// để client luôn đọc lỗi theo MỘT định dạng.
+app.UseStatusCodePages();
 
 // Configure the HTTP request pipeline.
 //if (app.Environment.IsDevelopment())
