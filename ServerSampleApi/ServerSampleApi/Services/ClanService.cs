@@ -52,11 +52,13 @@ namespace ServerSampleApi.Services
 
         private readonly GameDbContext _db;
         private readonly IHubContext<GameHub, IGameClient> _hub;
+        private readonly ILogger<ClanService> _logger;
 
-        public ClanService(GameDbContext db, IHubContext<GameHub, IGameClient> hub)
+        public ClanService(GameDbContext db, IHubContext<GameHub, IGameClient> hub, ILogger<ClanService> logger)
         {
             _db = db;
             _hub = hub;
+            _logger = logger;
         }
 
         /// <summary>Tìm clan có tên chứa search (không phân biệt hoa thường). search rỗng: các clan đầu tiên theo tên.</summary>
@@ -270,15 +272,17 @@ namespace ServerSampleApi.Services
 
             // Người nhận: những người ở lại + chính người vừa rời (để các thiết bị khác của họ cũng biết).
             remainingIds.Add(playerId);
-            await _hub.Clients.Users(remainingIds.Select(id => id.ToString()).ToList())
-                .ClanMemberLeft(new ClanMemberEvent
-                {
-                    ClanId = clan.Id,
-                    PlayerId = playerId,
-                    DisplayName = displayName,
-                    LeaderId = leaderId,
-                    MemberCount = clan.MemberCount,
-                });
+            // Đã commit: Redis sập thì chỉ ghi log, vẫn trả thành công (xem RealtimeNotification).
+            await RealtimeNotification.TrySendAsync(_logger, "ClanMemberLeft",
+                () => _hub.Clients.Users(remainingIds.Select(id => id.ToString()).ToList())
+                    .ClanMemberLeft(new ClanMemberEvent
+                    {
+                        ClanId = clan.Id,
+                        PlayerId = playerId,
+                        DisplayName = displayName,
+                        LeaderId = leaderId,
+                        MemberCount = clan.MemberCount,
+                    }));
 
             return ServiceResult.Success();
         }
@@ -301,6 +305,7 @@ namespace ServerSampleApi.Services
         /// <summary>
         /// Báo "playerId vừa vào clan" cho mọi thành viên hiện tại của clan (gồm cả chính người đó).
         /// Clients.Users(...): mọi kết nối của những người trong danh sách, trên server nào cũng được (backplane).
+        /// Gọi sau khi đã commit: Redis sập thì chỉ ghi log, vẫn trả thành công (xem RealtimeNotification).
         /// </summary>
         private Task NotifyMemberJoinedAsync(ClanResponse clan, Guid playerId)
         {
@@ -310,15 +315,16 @@ namespace ServerSampleApi.Services
                 return Task.CompletedTask; // đã rời clan ngay sau khi vào: không còn gì để báo
             }
 
-            return _hub.Clients.Users(clan.Members.Select(m => m.PlayerId.ToString()).ToList())
-                .ClanMemberJoined(new ClanMemberEvent
-                {
-                    ClanId = clan.Id,
-                    PlayerId = playerId,
-                    DisplayName = member.DisplayName,
-                    LeaderId = clan.LeaderId,
-                    MemberCount = clan.MemberCount,
-                });
+            return RealtimeNotification.TrySendAsync(_logger, "ClanMemberJoined",
+                () => _hub.Clients.Users(clan.Members.Select(m => m.PlayerId.ToString()).ToList())
+                    .ClanMemberJoined(new ClanMemberEvent
+                    {
+                        ClanId = clan.Id,
+                        PlayerId = playerId,
+                        DisplayName = member.DisplayName,
+                        LeaderId = clan.LeaderId,
+                        MemberCount = clan.MemberCount,
+                    }));
         }
 
         /// <summary>Clan mà người chơi đang ở, null nếu không ở clan nào.</summary>

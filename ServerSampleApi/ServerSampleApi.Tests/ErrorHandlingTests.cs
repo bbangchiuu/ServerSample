@@ -55,6 +55,39 @@ public class ErrorHandlingTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task RedisDown_WritesStillSucceed_BecauseRealtimeNotificationsAreBestEffort()
+    {
+        // Đăng ký trên server bình thường, rồi dùng chính token đó trên một server có Redis "sập".
+        TestPlayer player = await TestHelper.RegisterNewPlayerAsync(_factory);
+
+        // Server thứ hai: cùng database test, nhưng Redis trỏ tới cổng 1 (không có gì). Thời gian chờ ngắn cho test nhanh.
+        // Cả bảng xếp hạng, danh sách online VÀ backplane SignalR đều dùng chuỗi kết nối này.
+        await using WebApplicationFactory<Program> redisDown = _factory.WithWebHostBuilder(builder =>
+            builder.UseSetting("ConnectionStrings:Redis",
+                "127.0.0.1:1,abortConnect=false,connectTimeout=1000,syncTimeout=1000,asyncTimeout=1000"));
+        HttpClient client = redisDown.CreateClient();
+        client.DefaultRequestHeaders.Authorization = player.Client.DefaultRequestHeaders.Authorization;
+
+        // Mỗi API dưới đây LƯU vào PostgreSQL rồi mới báo realtime (qua Redis backplane).
+        // Dữ liệu đã lưu thì phải trả thành công: báo realtime không được là lý do để trả 500.
+        HttpResponseMessage rename = await client.PutAsJsonAsync("/api/players/me/display-name",
+            new ChangeDisplayNameRequest { DisplayName = "RedisDown" });
+        Assert.Equal(HttpStatusCode.OK, rename.StatusCode);
+
+        HttpResponseMessage reward = await client.PostAsync("/api/players/me/daily-reward", null);
+        Assert.Equal(HttpStatusCode.OK, reward.StatusCode);
+        PlayerProfileResponse? profile = await reward.Content.ReadFromJsonAsync<PlayerProfileResponse>();
+        Assert.Equal(100, profile!.Gold); // vàng đã được cộng thật
+
+        HttpResponseMessage create = await client.PostAsJsonAsync("/api/clans",
+            new CreateClanRequest { Name = "rd" + Guid.NewGuid().ToString("N")[..10] });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+
+        HttpResponseMessage leave = await client.PostAsync("/api/clans/me/leave", null);
+        Assert.Equal(HttpStatusCode.NoContent, leave.StatusCode);
+    }
+
+    [Fact]
     public async Task UnknownRoute_Returns404ProblemDetails()
     {
         HttpClient client = _factory.CreateClient();

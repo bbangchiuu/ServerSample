@@ -188,13 +188,14 @@ namespace ServerSampleApi.Controllers
             if (entry != null)
             {
                 // Clients.All: mọi người đang online, kể cả chính người vừa nhận thưởng.
-                await _hub.Clients.All.LeaderboardChanged(new LeaderboardEntryResponse
-                {
-                    Rank = entry.Rank,
-                    PlayerId = player.Id,
-                    DisplayName = player.DisplayName,
-                    Gold = entry.Gold,
-                });
+                await RealtimeNotification.TrySendAsync(_logger, "LeaderboardChanged",
+                    () => _hub.Clients.All.LeaderboardChanged(new LeaderboardEntryResponse
+                    {
+                        Rank = entry.Rank,
+                        PlayerId = player.Id,
+                        DisplayName = player.DisplayName,
+                        Gold = entry.Gold,
+                    }));
             }
 
             return Ok(profile);
@@ -209,8 +210,8 @@ namespace ServerSampleApi.Controllers
         /// thất bại và bấm lại, rồi bị báo "hôm nay đã nhận", rất khó hiểu. Bảng xếp hạng chậm cập nhật
         /// một chút vẫn hơn làm hỏng chức năng chính.
         ///
-        /// Lưu ý: chỉ RIÊNG bước này được bảo vệ. Các lệnh gửi SignalR phía sau (ProfileChanged, LeaderboardChanged)
-        /// cũng đi qua Redis (backplane), nên Redis sập thì chúng vẫn ném lỗi và client vẫn nhận 500.
+        /// Các lệnh gửi SignalR phía sau (ProfileChanged, LeaderboardChanged) cũng đi qua Redis (backplane), nên cũng
+        /// được bảo vệ cùng một kiểu, xem RealtimeNotification.
         /// </summary>
         private async Task<LeaderboardEntry?> UpdateLeaderboardAsync(PlayerModel player)
         {
@@ -229,10 +230,12 @@ namespace ServerSampleApi.Controllers
         /// <summary>
         /// Đẩy profile mới xuống MỌI kết nối của người chơi này (Clients.User, xem PlayerIdUserIdProvider).
         /// Người đó không mở kết nối nào thì không có ai nhận, cũng không lỗi gì.
+        /// Redis sập thì chỉ ghi log, không làm hỏng request (xem RealtimeNotification).
         /// </summary>
         private Task NotifyProfileChangedAsync(PlayerProfileResponse profile)
         {
-            return _hub.Clients.User(profile.Id.ToString()).ProfileChanged(profile);
+            return RealtimeNotification.TrySendAsync(_logger, "ProfileChanged",
+                () => _hub.Clients.User(profile.Id.ToString()).ProfileChanged(profile));
         }
 
         /// <summary>Chuyển Player (dữ liệu bên trong) thành DTO trả về.</summary>
