@@ -9,11 +9,12 @@ using UnityEngine.Networking;
 /// <summary>Thông tin lỗi khi gọi API thất bại.</summary>
 public class ApiError
 {
-    public ApiError(long statusCode, string message, string rawBody)
+    public ApiError(long statusCode, string message, string rawBody, string? authenticateError = null)
     {
         StatusCode = statusCode;
         Message = message;
         RawBody = rawBody;
+        AuthenticateError = authenticateError;
     }
 
     /// <summary>HTTP status code (400, 401, 404, 409...). 0 nếu không kết nối được tới server.</summary>
@@ -24,6 +25,12 @@ public class ApiError
 
     /// <summary>Nội dung gốc server trả về, ví dụ danh sách lỗi validation của từng trường.</summary>
     public string RawBody { get; }
+
+    /// <summary>
+    /// Chỉ có ở lỗi 401 do token: lý do server ghi trong header WWW-Authenticate,
+    /// ví dụ "The token expired at '11/14/2026 11:55:43'". null nếu server không ghi lý do (ví dụ thiếu token).
+    /// </summary>
+    public string? AuthenticateError { get; }
 }
 
 /// <summary>
@@ -261,7 +268,8 @@ public class ApiClient
         {
             // Token vừa làm mới mà vẫn bị từ chối: có gì đó sai hẳn, bắt đăng nhập lại.
             ClearTokens();
-            return (default!, new ApiError(401, "Session expired. Please log in again.", retryError.RawBody));
+            return (default!, new ApiError(401, "Session expired. Please log in again.", retryError.RawBody,
+                retryError.AuthenticateError));
         }
         return (retryData, retryError);
     }
@@ -388,12 +396,19 @@ public class ApiClient
                     }
 
                 case UnityWebRequest.Result.ProtocolError: // server có trả lời, nhưng là lỗi 4xx/5xx
+                    string message = ReadProblemMessage(text, request.error);
+
                     // 401 do token sai/hết hạn: body chỉ là ProblemDetails chung chung ("Unauthorized", do
-                    // UseStatusCodePages của server thêm vào). Lý do cụ thể nằm trong header WWW-Authenticate,
-                    // ví dụ: Bearer error="invalid_token", error_description="The token expired at ..."
-                    // Dòng dưới chỉ lấy header khi body RỖNG (server khác, hoặc server trước khi có UseStatusCodePages).
-                    string rawBody = string.IsNullOrEmpty(text) ? request.GetResponseHeader("WWW-Authenticate") ?? "" : text;
-                    return (default!, new ApiError(request.responseCode, ReadProblemMessage(text, request.error), rawBody));
+                    // UseStatusCodePages của server thêm vào). Lý do cụ thể nằm trong HEADER WWW-Authenticate,
+                    // nên phải đọc header riêng, không phụ thuộc body có rỗng hay không.
+                    string? authenticateError = request.responseCode == 401
+                        ? ReadAuthenticateError(request.GetResponseHeader("WWW-Authenticate"))
+                        : null;
+                    if (authenticateError != null)
+                    {
+                        message = $"{message} ({authenticateError})"; // "Unauthorized (The token expired at ...)"
+                    }
+                    return (default!, new ApiError(request.responseCode, message, text, authenticateError));
 
                 default: // không tới được server: chưa bật server, sai cổng, sai giao thức, hết thời gian chờ...
                     return (default!, new ApiError(0, request.error, text));
@@ -410,6 +425,34 @@ public class ApiClient
         var completion = new TaskCompletionSource<bool>();
         request.SendWebRequest().completed += _ => completion.TrySetResult(true);
         return completion.Task;
+    }
+
+    /// <summary>
+    /// Đọc lý do từ header WWW-Authenticate của lỗi 401. Server (JwtBearer) trả về một trong các dạng:
+    ///   Bearer error="invalid_token", error_description="The token expired at '11/14/2026 11:55:43'"
+    ///   Bearer error="invalid_token"        (token không đọc được: ưu tiên error_description, không có thì lấy error)
+    ///   Bearer                              (không gửi token: không có lý do gì thêm, trả về null)
+    /// </summary>
+    public static string? ReadAuthenticateError(string? header)
+    {
+        if (string.IsNullOrEmpty(header))
+        {
+            return null;
+        }
+        return ReadQuotedValue(header!, "error_description=\"") ?? ReadQuotedValue(header!, "error=\"");
+    }
+
+    /// <summary>Lấy phần nằm giữa key="..." và dấu " đóng tiếp theo. Không có key thì trả về null.</summary>
+    private static string? ReadQuotedValue(string header, string key)
+    {
+        int start = header.IndexOf(key, StringComparison.Ordinal);
+        if (start < 0)
+        {
+            return null;
+        }
+        start += key.Length;
+        int end = header.IndexOf('"', start);
+        return end < 0 ? header.Substring(start) : header.Substring(start, end - start);
     }
 
     /// <summary>Lấy "title" và "detail" từ ProblemDetails. Body không phải JSON thì dùng thông báo lỗi của Unity.</summary>

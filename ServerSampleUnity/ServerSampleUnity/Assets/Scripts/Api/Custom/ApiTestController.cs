@@ -305,7 +305,9 @@ public class ApiTestController : MonoBehaviour
             {
                 // ApiClient đã thử làm mới token mà không được (refresh token hết hạn hoặc bị thu hồi)
                 // và đã bỏ token: quay về màn hình đăng nhập.
-                AddLog($"   {error.RawBody}"); // lý do server trả về
+                // Lý do server trả về: lý do của 401 (header WWW-Authenticate) nếu có, không thì body
+                // (ví dụ body của /api/accounts/refresh khi refresh token hết hạn hoặc bị thu hồi).
+                AddLog($"   {error.AuthenticateError ?? error.RawBody}");
                 Logout();
             }
             _busy = false;
