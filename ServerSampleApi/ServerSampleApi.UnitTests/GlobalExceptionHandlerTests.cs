@@ -23,8 +23,11 @@ public class GlobalExceptionHandlerTests
             new NpgsqlException("Failed to connect", new SocketException())) },
         { "Bọc nhiều lớp", new AggregateException(new InvalidOperationException("outer",
             new NpgsqlException("Failed to connect", new TimeoutException()))) },
-        { "Redis không kết nối được", new RedisConnectionException(ConnectionFailureType.UnableToConnect, "No connection") },
-        { "Redis quá thời gian chờ", new RedisTimeoutException("Timeout performing GET", CommandStatus.Unknown) },
+        { "Redis không kết nối được",
+            new RedisConnectionException(ConnectionFailureType.UnableToConnect, CommandFlags.None, "No connection",
+                innerException: null, CommandStatus.Unknown) },
+        { "Redis quá thời gian chờ",
+            new RedisTimeoutException(CommandFlags.None, "Timeout performing GET", CommandStatus.Unknown) },
         { "TimeoutException chung", new TimeoutException() },
     };
 
