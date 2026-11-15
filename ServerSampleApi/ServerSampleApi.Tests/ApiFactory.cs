@@ -1,23 +1,20 @@
-using System.Net;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ServerSampleApi.Data;
-using StackExchange.Redis;
 
 namespace ServerSampleApi.Tests;
 
 /// <summary>
 /// "Server ảo" cho test, giống WebApplicationFactory&lt;Program&gt; nhưng dùng một DATABASE RIÊNG:
-///  - Mỗi lớp test (IClassFixture) nhận một ApiFactory, tức một database tên ngẫu nhiên "game_test_...",
-///    nằm trong cùng container PostgreSQL với database "game".
-///  - Trước khi test chạy (InitializeAsync): tạo database đó và chạy toàn bộ migration.
-///  - Sau khi test xong (DisposeAsync): xoá hẳn database đó.
-/// Nhờ vậy test không bao giờ thêm tài khoản thử vào database "game" bạn dùng khi chạy API,
-/// và các lớp test chạy song song không đụng dữ liệu của nhau.
-///
-/// Cần container PostgreSQL (localhost:5432) và Redis (localhost:6379) đang chạy.
+///  - PostgreSQL và Redis là container riêng của test, tự bật bằng Testcontainers (xem TestInfrastructure),
+///    không phải container dev của docker-compose. Chỉ cần Docker Desktop đang chạy.
+///  - Mỗi lớp test (IClassFixture) nhận một ApiFactory, tức một database tên ngẫu nhiên "game_test_..."
+///    trong container PostgreSQL đó, và một prefix key riêng trong container Redis.
+///  - Trước khi test chạy (InitializeAsync): bật container (nếu chưa), tạo database và chạy toàn bộ migration.
+/// Nhờ vậy các lớp test chạy song song không đụng dữ liệu của nhau, và không bao giờ đụng dữ liệu dev.
+/// Không cần tự xoá database/key sau khi test xong: chạy xong, cả container bị xoá.
 /// </summary>
 public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
@@ -25,8 +22,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     // (Không bắt buộc: EF Core/Npgsql tự đặt tên database trong ngoặc kép khi CREATE/DROP.)
     private readonly string _databaseName = $"game_test_{Guid.NewGuid():N}";
 
-    private string ConnectionString =>
-        $"Host=localhost;Port=5432;Database={_databaseName};Username=game;Password=game_dev_password";
+    private string ConnectionString => TestInfrastructure.PostgresConnectionString(_databaseName);
 
     // Redis không có "database riêng theo tên" như PostgreSQL, nên mỗi lớp test dùng một KEY riêng
     // cho bảng xếp hạng, không đụng vào key "leaderboard:gold" thật.
@@ -46,8 +42,10 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        // Ghi đè chuỗi kết nối "GameDb" trong appsettings.Development.json, chỉ trong server ảo của test.
+        // Ghi đè chuỗi kết nối "GameDb" và "Redis" trong appsettings.Development.json, chỉ trong server ảo của test:
+        // trỏ tới container của Testcontainers (cổng ngẫu nhiên) thay vì localhost:5432 / localhost:6379.
         builder.UseSetting("ConnectionStrings:GameDb", ConnectionString);
+        builder.UseSetting("ConnectionStrings:Redis", TestInfrastructure.RedisConnectionString);
         builder.UseSetting("Leaderboard:RedisKey", LeaderboardKey);
         builder.UseSetting("Presence:RedisKeyPrefix", PresenceKeyPrefix);
         // Kênh backplane riêng: Clients.All của lớp test này không gửi sang server ảo của lớp test khác.
@@ -69,6 +67,10 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     /// <summary>xUnit gọi hàm này MỘT lần, trước test đầu tiên của lớp test.</summary>
     public async Task InitializeAsync()
     {
+        // Phải bật container TRƯỚC khi đụng tới Services: lần đầu đụng tới Services là lúc server ảo được tạo
+        // và ConfigureWebHost chạy, mà ConfigureWebHost cần chuỗi kết nối (cổng ngẫu nhiên) của container.
+        await TestInfrastructure.EnsureStartedAsync();
+
         using IServiceScope scope = Services.CreateScope();
         GameDbContext db = scope.ServiceProvider.GetRequiredService<GameDbContext>();
 
@@ -77,26 +79,12 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         await db.Database.MigrateAsync();
     }
 
-    /// <summary>xUnit gọi hàm này MỘT lần, sau test cuối cùng của lớp test.</summary>
+    /// <summary>
+    /// xUnit gọi hàm này MỘT lần, sau test cuối cùng của lớp test: tắt server ảo.
+    /// Không cần DROP DATABASE hay xoá key Redis như trước: container của test bị xoá khi chạy xong.
+    /// </summary>
     async Task IAsyncLifetime.DisposeAsync()
     {
-        using (IServiceScope scope = Services.CreateScope())
-        {
-            GameDbContext db = scope.ServiceProvider.GetRequiredService<GameDbContext>();
-            await db.Database.EnsureDeletedAsync(); // DROP DATABASE game_test_...
-
-            IConnectionMultiplexer redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
-            await redis.GetDatabase().KeyDeleteAsync(LeaderboardKey); // DEL test:...:leaderboard:gold
-            // Xoá mọi key bắt đầu bằng prefix của lớp test này. IServer.Keys() của StackExchange.Redis tự dùng lệnh SCAN
-            // (quét từng đợt nhỏ, không chặn Redis như lệnh KEYS), nhưng vẫn phải duyệt TOÀN BỘ key trong Redis,
-            // nên chỉ dùng cho test/công cụ, không dùng trong request của server thật.
-            foreach (EndPoint endpoint in redis.GetEndPoints())
-            {
-                RedisKey[] keys = redis.GetServer(endpoint).Keys(pattern: PresenceKeyPrefix + ":*").ToArray();
-                await redis.GetDatabase().KeyDeleteAsync(keys);
-            }
-        }
-
         await base.DisposeAsync();
     }
 }

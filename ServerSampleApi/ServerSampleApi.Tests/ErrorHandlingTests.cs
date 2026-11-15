@@ -28,8 +28,9 @@ public class ErrorHandlingTests : IClassFixture<ApiFactory>
         await using WebApplicationFactory<Program> brokenServer = _factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Production");
-            // Production không đọc appsettings.Development.json (nơi có chuỗi kết nối Redis), nên phải tự đưa vào.
-            builder.UseSetting("ConnectionStrings:Redis", "localhost:6379,abortConnect=false");
+            // Production không đọc appsettings.Development.json, nên phải tự đưa chuỗi kết nối Redis vào
+            // (container Redis của test, xem TestInfrastructure).
+            builder.UseSetting("ConnectionStrings:Redis", TestInfrastructure.RedisConnectionString);
             builder.UseSetting("ConnectionStrings:GameDb",
                 "Host=127.0.0.1;Port=1;Database=nothing;Username=nobody;Password=wrong;Timeout=3");
         });
