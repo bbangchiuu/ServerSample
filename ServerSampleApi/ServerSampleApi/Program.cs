@@ -42,6 +42,10 @@ builder.Services.AddOptions<JwtOptions>()
     .BindConfiguration(JwtOptions.SectionName)
     .ValidateDataAnnotations()
     .ValidateOnStart();
+// "Đồng hồ" của server (lớp TimeProvider có sẵn trong .NET 8+). TimeProvider.System = giờ thật của máy.
+// Class nào cần biết "bây giờ" thì nhận TimeProvider qua constructor thay vì gọi DateTime.UtcNow,
+// để unit test thay bằng đồng hồ giả (hiện có: TokenService).
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<TokenService>();
 // Scoped (không phải Singleton như TokenService) vì RefreshTokenService dùng GameDbContext.
 builder.Services.AddScoped<RefreshTokenService>();

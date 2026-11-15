@@ -26,12 +26,20 @@ namespace ServerSampleApi.Auth
     public class TokenService
     {
         private readonly JwtOptions _options;
+        private readonly TimeProvider _timeProvider;
         private readonly SigningCredentials _signingCredentials;
         private readonly JsonWebTokenHandler _tokenHandler = new();
 
-        public TokenService(IOptions<JwtOptions> options)
+        /// <summary>
+        /// timeProvider: "đồng hồ" để biết bây giờ là mấy giờ. Không gọi thẳng DateTime.UtcNow, vì như vậy giờ luôn là
+        /// giờ thật và mỗi lần chạy mỗi khác: test không thể kiểm tra "exp" đúng bằng bao nhiêu.
+        ///  - Chạy thật: DI truyền TimeProvider.System (đồng hồ của máy, đăng ký trong Program.cs).
+        ///  - Unit test: truyền một đồng hồ GIẢ, đặt giờ tuỳ ý (xem TokenServiceTests).
+        /// </summary>
+        public TokenService(IOptions<JwtOptions> options, TimeProvider timeProvider)
         {
             _options = options.Value;
+            _timeProvider = timeProvider;
 
             // HS256 = HMAC-SHA256: dùng CÙNG một khoá để ký (lúc tạo token) và để kiểm tra (lúc nhận token).
             _signingCredentials = new SigningCredentials(_options.CreateSigningKey(), SecurityAlgorithms.HmacSha256);
@@ -39,7 +47,8 @@ namespace ServerSampleApi.Auth
 
         public AccessToken CreateAccessToken(AccountModel account)
         {
-            DateTime now = DateTime.UtcNow;
+            // GetUtcNow() trả DateTimeOffset; .UtcDateTime đổi sang DateTime (Kind = Utc) như code cũ dùng.
+            DateTime now = _timeProvider.GetUtcNow().UtcDateTime;
             DateTime expiresAt = now.AddMinutes(_options.AccessTokenMinutes);
 
             var descriptor = new SecurityTokenDescriptor
