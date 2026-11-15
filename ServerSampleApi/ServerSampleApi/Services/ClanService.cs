@@ -48,8 +48,6 @@ namespace ServerSampleApi.Services
         /// <summary>Tìm kiếm trả về nhiều nhất bấy nhiêu clan.</summary>
         public const int MaxSearchResults = 20;
 
-        private const string LikeEscapeCharacter = "\\";
-
         private readonly GameDbContext _db;
         private readonly IHubContext<GameHub, IGameClient> _hub;
         private readonly ILogger<ClanService> _logger;
@@ -69,10 +67,9 @@ namespace ServerSampleApi.Services
             if (!string.IsNullOrWhiteSpace(search))
             {
                 // ILIKE: so khớp không phân biệt hoa thường. "%drag%" = tên có chứa "drag" ở bất kỳ đâu.
-                // % và _ là ký tự đặc biệt của LIKE, nên phải "thoát" (escape) chúng nếu người chơi gõ vào,
-                // nếu không gõ "%" sẽ khớp với MỌI tên.
-                string pattern = "%" + EscapeLikePattern(search.Trim()) + "%";
-                query = query.Where(c => EF.Functions.ILike(c.Name, pattern, LikeEscapeCharacter));
+                // % và _ người chơi gõ vào được escape (xem LikePattern), nếu không gõ "%" sẽ khớp với MỌI tên.
+                string pattern = LikePattern.Contains(search.Trim());
+                query = query.Where(c => EF.Functions.ILike(c.Name, pattern, LikePattern.EscapeCharacter));
             }
 
             List<ClanSummaryResponse> clans = await query
@@ -370,15 +367,6 @@ namespace ServerSampleApi.Services
                 CreatedAt = clan.CreatedAt,
                 Members = members,
             };
-        }
-
-        /// <summary>Thêm "\" trước các ký tự đặc biệt của LIKE (\, %, _) để chúng được hiểu đúng là chữ.</summary>
-        private static string EscapeLikePattern(string text)
-        {
-            return text
-                .Replace(LikeEscapeCharacter, LikeEscapeCharacter + LikeEscapeCharacter)
-                .Replace("%", LikeEscapeCharacter + "%")
-                .Replace("_", LikeEscapeCharacter + "_");
         }
     }
 }

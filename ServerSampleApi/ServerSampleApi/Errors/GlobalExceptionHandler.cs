@@ -82,8 +82,9 @@ namespace ServerSampleApi.Errors
         /// <summary>
         /// Lỗi do database hoặc Redis tạm thời không dùng được (không kết nối được, quá thời gian chờ...).
         /// Exception thường bị bọc nhiều lớp (EF Core bọc lỗi của Npgsql), nên xét cả các InnerException.
+        /// "internal" (không phải private) để unit test gọi được trực tiếp, xem GlobalExceptionHandlerTests.
         /// </summary>
-        private static bool IsDependencyUnavailable(Exception exception)
+        internal static bool IsDependencyUnavailable(Exception exception)
         {
             for (Exception? current = exception; current != null; current = current.InnerException)
             {
