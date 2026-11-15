@@ -1,0 +1,67 @@
+# GitHub Actions: mỗi lần push / tạo pull request, GitHub tự build ServerSampleApi và chạy toàn bộ test
+# trên một máy ảo Linux sạch. Xem kết quả ở tab "Actions" của repo trên GitHub.
+#
+# Cấu trúc: workflow (file này) → jobs (các việc, mỗi job một máy ảo riêng) → steps (các bước chạy lần lượt).
+
+name: API CI
+
+# Khi nào chạy
+on:
+  push:
+    branches: [main]
+    # Chỉ chạy khi có thay đổi ở server hoặc ở chính file này. Commit chỉ sửa Unity thì bỏ qua, đỡ tốn thời gian.
+    paths:
+      - "ServerSampleApi/**"
+      - ".github/workflows/api-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "ServerSampleApi/**"
+      - ".github/workflows/api-ci.yml"
+  # Thêm nút "Run workflow" trong tab Actions để chạy tay bất cứ lúc nào.
+  workflow_dispatch:
+
+# Quyền của token GitHub cấp cho workflow: chỉ cần ĐỌC code. Cấp ít nhất có thể (an toàn hơn).
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    # Máy ảo Ubuntu do GitHub cung cấp, có sẵn Docker: Testcontainers dùng nó để bật PostgreSQL và Redis.
+    runs-on: ubuntu-latest
+    # Treo quá 20 phút thì GitHub tự huỷ (mặc định tới 6 tiếng).
+    timeout-minutes: 20
+
+    # Mọi lệnh "run" chạy trong thư mục ServerSampleApi (nơi có ServerSampleApi.slnx).
+    defaults:
+      run:
+        working-directory: ServerSampleApi
+
+    steps:
+      # 1. Tải code của commit đang được kiểm tra về máy ảo.
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # 2. Cài .NET SDK 10 (bản 10.0 mới nhất), giống máy bạn.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      # 3. Tải các package NuGet. Package có lỗ hổng bảo mật (NU1901-NU1904, như vụ StackExchangeRedis 10.0.14)
+      #    thì coi là LỖI: CI đỏ ngay, không để lọt bản có lỗ hổng.
+      #    %3B là dấu ";" đã escape: viết ";" thẳng thì MSBuild hiểu là ngăn cách giữa hai property và báo lỗi.
+      - name: Restore
+        run: dotnet restore ServerSampleApi.slnx -p:WarningsAsErrors=NU1901%3BNU1902%3BNU1903%3BNU1904
+
+      # 4. Build ở chế độ Release (giống lúc deploy thật). --no-restore: bước 3 đã làm rồi.
+      - name: Build
+        run: dotnet build ServerSampleApi.slnx --configuration Release --no-restore
+
+      # 5. Unit test trước: nhanh (dưới 1 giây), sai logic thuần thì báo ngay, khỏi chờ bật container.
+      - name: Unit tests
+        run: dotnet test ServerSampleApi.UnitTests --configuration Release --no-build
+
+      # 6. Integration test: Testcontainers tự bật postgres:17 và redis:8 trong Docker của máy ảo.
+      - name: Integration tests
+        run: dotnet test ServerSampleApi.Tests --configuration Release --no-build
