@@ -78,6 +78,33 @@ public class LoggingTests : IClassFixture<ApiFactory>
         }
     }
 
+    [Fact]
+    public async Task UnhandledError_ErrorLogCarriesPlayerId()
+    {
+        // Server có database "sập" (cổng 1 không có gì). Token tự ký đúng khoá nên vẫn hợp lệ, không cần database.
+        var logs = new CapturingLoggerProvider();
+        await using WebApplicationFactory<Program> databaseDown = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("ConnectionStrings:GameDb",
+                "Host=127.0.0.1;Port=1;Database=nothing;Username=nobody;Password=wrong;Timeout=3");
+            builder.ConfigureLogging(logging => logging.AddProvider(logs));
+        });
+        HttpClient client = databaseDown.CreateClient();
+        Guid playerId = Guid.NewGuid();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TestHelper.CreateToken(playerId, DateTime.UtcNow.AddMinutes(10)));
+
+        HttpResponseMessage response = await client.GetAsync("/api/players/me");
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+
+        // Dòng Error quan trọng nhất (do GlobalExceptionHandler ghi) phải cho biết lỗi xảy ra với người chơi nào.
+        // Không thể trông vào scope của PlayerIdLogScopeMiddleware: UseExceptionHandler đứng NGOÀI middleware đó,
+        // nên lúc exception bay tới đây thì "using" đã đóng scope rồi.
+        CapturedLog errorLog = await logs.WaitForAsync(l =>
+            l.Category == "ServerSampleApi.Errors.GlobalExceptionHandler" && l.Level == LogLevel.Error);
+        Assert.Equal(playerId.ToString(), errorLog.Values.GetValueOrDefault("PlayerId")?.ToString());
+    }
+
     /// <summary>Server ảo có gắn bộ bắt log, cộng một người chơi vừa đăng ký (client đã gắn token).</summary>
     private async Task<(CapturingLoggerProvider Logs, HttpClient Client, Guid PlayerId, string AccessToken)> StartServerAndLoginAsync()
     {

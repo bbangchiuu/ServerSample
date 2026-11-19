@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.JsonWebTokens;
 using Npgsql;
 using StackExchange.Redis;
 
@@ -57,8 +59,12 @@ namespace ServerSampleApi.Errors
             bool unavailable = IsDependencyUnavailable(exception);
             int statusCode = unavailable ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status500InternalServerError;
 
-            _logger.LogError(exception, "Unhandled exception on {Method} {Path}, traceId {TraceId}",
-                httpContext.Request.Method, httpContext.Request.Path, traceId);
+            // PlayerId phải tự lấy ở đây, không trông vào scope của PlayerIdLogScopeMiddleware: UseExceptionHandler
+            // đứng NGOÀI middleware đó trong pipeline, nên khi exception bay ra tới đây thì "using" đã đóng scope.
+            // httpContext.User thì vẫn còn nguyên (null nếu request không có token hợp lệ, ví dụ lúc đăng nhập).
+            string? playerId = httpContext.User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+            _logger.LogError(exception, "Unhandled exception on {Method} {Path} for player {PlayerId}, traceId {TraceId}",
+                httpContext.Request.Method, httpContext.Request.Path, playerId, traceId);
 
             httpContext.Response.StatusCode = statusCode;
             return await _problemDetails.TryWriteAsync(new ProblemDetailsContext

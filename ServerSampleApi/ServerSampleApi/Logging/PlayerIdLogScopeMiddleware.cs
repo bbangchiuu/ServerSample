@@ -4,8 +4,12 @@ using Microsoft.IdentityModel.JsonWebTokens;
 namespace ServerSampleApi.Logging
 {
     /// <summary>
-    /// Gắn "PlayerId" vào MỌI dòng log phát sinh trong một request (log của controller, service, GlobalExceptionHandler...),
-    /// không chỉ dòng log tổng kết của HttpLogging.
+    /// Gắn "PlayerId" vào MỌI dòng log phát sinh BÊN TRONG phần còn lại của request (controller, service, câu SQL
+    /// của EF Core, cảnh báo Redis...), không chỉ dòng log tổng kết của HttpLogging.
+    ///
+    /// Ngoại lệ: middleware đứng NGOÀI middleware này (UseHttpLogging, UseExceptionHandler) ghi log SAU KHI scope
+    /// đã đóng, nên không nhận được PlayerId từ đây: chúng tự lấy từ HttpContext.User
+    /// (xem PlayerIdHttpLoggingInterceptor và GlobalExceptionHandler).
     ///
     /// Cơ chế: logger.BeginScope(...) mở một "scope". Mọi log ghi ra trong lúc scope còn mở (kể cả ở class khác,
     /// kể cả sau await) đều mang theo dữ liệu của scope. TraceId cũng được ASP.NET Core gắn theo đúng cách này.
