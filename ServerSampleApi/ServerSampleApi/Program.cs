@@ -15,6 +15,7 @@ using Microsoft.OpenApi;
 using ServerSampleApi.Auth;
 using ServerSampleApi.Data;
 using ServerSampleApi.Errors;
+using ServerSampleApi.Health;
 using ServerSampleApi.Hubs;
 using ServerSampleApi.Logging;
 using ServerSampleApi.Models;
@@ -47,6 +48,11 @@ builder.Services.AddHttpLogging(options =>
     options.CombineLogs = true;
 });
 builder.Services.AddHttpLoggingInterceptor<PlayerIdHttpLoggingInterceptor>();
+// Health check (/health/...) được gọi vài giây một lần: không ghi dòng log HttpLogging cho chúng.
+builder.Services.AddHttpLoggingInterceptor<SkipHealthCheckHttpLoggingInterceptor>();
+
+// Health check: /health/live (process còn sống) và /health/ready (PostgreSQL + Redis). Xem Health/HealthCheckSetup.cs.
+builder.Services.AddGameHealthChecks();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
 // Băm mật khẩu (thuật toán PBKDF2), có sẵn trong ASP.NET Core, không cần cài thêm package.
@@ -378,5 +384,8 @@ app.MapControllers();
 
 // Kênh realtime: client kết nối tới wss://localhost:5257/hubs/game
 app.MapHub<GameHub>(GameHub.Path);
+
+// /health/live và /health/ready: không cần token (Docker, load balancer không đăng nhập).
+app.MapGameHealthChecks();
 
 app.Run();
