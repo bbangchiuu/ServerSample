@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpLogging;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -15,6 +16,7 @@ using ServerSampleApi.Auth;
 using ServerSampleApi.Data;
 using ServerSampleApi.Errors;
 using ServerSampleApi.Hubs;
+using ServerSampleApi.Logging;
 using ServerSampleApi.Models;
 using ServerSampleApi.Services;
 using StackExchange.Redis;
@@ -29,6 +31,22 @@ builder.Services.AddControllers();
 // AddProblemDetails: đăng ký dịch vụ viết lỗi dạng ProblemDetails (có traceId). Kết hợp với UseExceptionHandler và
 // UseStatusCodePages bên dưới, lỗi 500/503 và cả 401, 404 không có nội dung đều trả cùng một định dạng JSON.
 builder.Services.AddProblemDetails();
+
+// Log MỖI REQUEST MỘT DÒNG: method, path, status, thời gian xử lý (Duration), cộng PlayerId (interceptor).
+// Định dạng log (JSON khi chạy thật, dạng dễ đọc khi Development) nằm trong appsettings, không nằm trong code.
+//  - CombineLogs: gộp phần request và phần response thành một dòng, thay vì 2 dòng rời nhau.
+//  - CHỈ ghi các trường an toàn. KHÔNG ghi header (có "Authorization: Bearer <token>"), KHÔNG ghi query string
+//    (SignalR gửi token trong "?access_token=..."), KHÔNG ghi body (có mật khẩu lúc đăng nhập).
+//    Log thường được nhiều người đọc và lưu lâu: lộ token trong log cũng nguy hiểm như lộ mật khẩu.
+builder.Services.AddHttpLogging(options =>
+{
+    options.LoggingFields = HttpLoggingFields.RequestMethod
+        | HttpLoggingFields.RequestPath
+        | HttpLoggingFields.ResponseStatusCode
+        | HttpLoggingFields.Duration;
+    options.CombineLogs = true;
+});
+builder.Services.AddHttpLoggingInterceptor<PlayerIdHttpLoggingInterceptor>();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
 // Băm mật khẩu (thuật toán PBKDF2), có sẵn trong ASP.NET Core, không cần cài thêm package.
@@ -322,7 +340,11 @@ builder.Services.AddOpenApi(options =>
 
 var app = builder.Build();
 
-// ĐẦU TIÊN trong pipeline: bọc ngoài mọi middleware phía sau, nên exception ném ra ở bất cứ đâu bên dưới
+// NGOÀI CÙNG pipeline: ghi dòng log tổng kết SAU KHI mọi middleware bên trong đã xong, nên thấy đúng status cuối cùng,
+// kể cả 500/503 do UseExceptionHandler bên dưới tạo ra, 429 của rate limiter, 401 của Authentication.
+app.UseHttpLogging();
+
+// Ngay sau HttpLogging: bọc ngoài mọi middleware phía sau, nên exception ném ra ở bất cứ đâu bên dưới
 // (controller, service, database...) đều được GlobalExceptionHandler bắt.
 app.UseExceptionHandler();
 
@@ -348,6 +370,8 @@ app.UseRateLimiter();
 
 // Thứ tự quan trọng: phải biết "bạn là ai" (Authentication) rồi mới xét "bạn được làm gì" (Authorization).
 app.UseAuthentication();
+// Đã biết token của ai: từ đây mọi log trong request đều mang PlayerId (xem PlayerIdLogScopeMiddleware).
+app.UsePlayerIdLogScope();
 app.UseAuthorization();
 
 app.MapControllers();
