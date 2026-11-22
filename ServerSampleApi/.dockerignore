@@ -1,0 +1,25 @@
+# Những thứ KHÔNG gửi vào Docker khi build (docker build gửi cả thư mục hiện tại làm "build context").
+# Gửi ít thì build nhanh hơn, và không lỡ đưa thứ không nên có vào image.
+
+# Kết quả build trên máy (Windows): image tự build lại bên trong, bin/obj của Windows chỉ làm rối.
+**/bin/
+**/obj/
+
+# File của Visual Studio / IDE.
+**/.vs/
+**/*.user
+**/.idea/
+
+# Test không cần cho image chạy.
+ServerSampleApi.Tests/
+ServerSampleApi.UnitTests/
+
+# Cấu hình DEV (chuỗi kết nối localhost, mật khẩu database dev): server thật không dùng, không đưa vào image.
+# Server trong container nhận cấu hình qua biến môi trường.
+**/appsettings.Development.json
+
+# Docker và Git.
+Dockerfile
+.dockerignore
+docker-compose*.yml
+**/.git

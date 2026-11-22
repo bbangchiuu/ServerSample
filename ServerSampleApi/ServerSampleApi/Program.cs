@@ -358,14 +358,23 @@ app.UseExceptionHandler();
 // để client luôn đọc lỗi theo MỘT định dạng.
 app.UseStatusCodePages();
 
-// Configure the HTTP request pipeline.
-//if (app.Environment.IsDevelopment())
+// Swagger UI (/swagger) và tài liệu OpenAPI (/openapi/v1.json): luôn bật khi Development.
+// Môi trường khác (server thật) thì TẮT, trừ khi chủ động bật bằng cấu hình Swagger:Enabled = true
+// (biến môi trường Swagger__Enabled=true): người ngoài không cần xem toàn bộ danh sách API của game.
+if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("Swagger:Enabled"))
 {
-    app.MapOpenApi(); 
+    app.MapOpenApi();
     app.UseSwaggerUI(options => options.SwaggerEndpoint("/openapi/v1.json", "ServerSample API"));
 }
 
-app.UseHttpsRedirection();
+// Chỉ chuyển http → https khi chạy trên máy dev (https://localhost:5257).
+// Khi chạy trong Docker, server chỉ nghe HTTP (cổng 8080); HTTPS do reverse proxy phía trước lo (giai đoạn 7, bước 5):
+// proxy nhận https từ người chơi, rồi chuyển tiếp vào container bằng http. Nếu bật ở đây thì server không biết
+// cổng https nào để chuyển hướng tới (cảnh báo "Failed to determine the https port for redirect").
+if (app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 // Trả về các file tĩnh trong thư mục wwwroot, ví dụ trang thử chat: https://localhost:5257/chat-test.html
 app.UseStaticFiles();
