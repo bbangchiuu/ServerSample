@@ -23,6 +23,23 @@ COPY ServerSampleApi/ ServerSampleApi/
 # publish: build Release và gom mọi thứ cần để chạy (dll, appsettings.json, wwwroot...) vào /app/publish.
 RUN dotnet publish ServerSampleApi/ServerSampleApi.csproj --configuration Release --output /app/publish --no-restore
 
+# ===== Image phụ: chạy migration database (docker-compose dùng, xem deploy/docker-compose.yml) =====
+# EF "migration bundle": MỘT file chạy được, chứa mọi migration. Chạy nó = "dotnet ef database update",
+# nhưng không cần SDK hay mã nguồn. Build riêng bằng: docker build --target migrator -t serversample-migrator .
+# (Build image chính bằng "docker build ." thì 2 giai đoạn này bị bỏ qua: image chính không cần chúng.)
+FROM build AS bundle
+# Cài dotnet-ef theo đúng phiên bản trong dotnet-tools.json.
+COPY dotnet-tools.json ./
+RUN dotnet tool restore
+RUN dotnet ef migrations bundle --project ServerSampleApi/ServerSampleApi.csproj --configuration Release --output /app/efbundle
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS migrator
+WORKDIR /app
+COPY --from=bundle /app/efbundle .
+USER $APP_UID
+# Đọc chuỗi kết nối từ biến môi trường ConnectionStrings__GameDb (giống server), áp các migration còn thiếu rồi THOÁT.
+ENTRYPOINT ["./efbundle"]
+
 # ===== Giai đoạn 2: runtime =====
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 

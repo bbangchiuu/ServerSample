@@ -1,0 +1,99 @@
+# CẢ HỆ THỐNG (API + PostgreSQL + Redis) bằng một lệnh, giống cách chạy trên server thật.
+# Khác ServerSampleApi/docker-compose.yml (chỉ có PostgreSQL cho lúc dev, chạy API bằng Visual Studio).
+#
+# Cách dùng (trong thư mục deploy):
+#   1. Chép .env.example thành .env, điền khoá bí mật thật (file .env KHÔNG được commit).
+#   2. docker compose up -d --build     ← build image, chạy migration, rồi chạy API
+#   3. docker compose ps                ← xem trạng thái (healthy?)
+#   4. docker compose logs -f api       ← xem log của API
+#   5. docker compose down              ← tắt (dữ liệu vẫn còn trong volume)
+#
+# Thứ tự khởi động (depends_on):
+#   postgres (healthy) ──► migrate (chạy xong, thoát với mã 0) ──► api
+#   redis    (healthy) ───────────────────────────────────────────┘
+
+# Tên "project": tiền tố của container, volume, network. Đặt riêng để không đụng container dev
+# (serversample-postgres, serversample-redis) bạn đang dùng khi chạy API bằng Visual Studio.
+name: serversample-stack
+
+# Cấu hình log dùng chung (YAML anchor "&default-logging", dùng lại bằng "*default-logging").
+# Docker giữ stdout của container trong file JSON trên ổ đĩa: tối đa 3 file × 10 MB mỗi container,
+# đầy thì xoá file cũ nhất. Không giới hạn thì log có thể phình tới hết ổ đĩa sau vài tháng.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: game
+      POSTGRES_DB: game
+      # ${...:?...}: bắt buộc có trong .env, thiếu thì docker compose báo lỗi và DỪNG, không chạy với mật khẩu rỗng.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # dữ liệu nằm ở volume: xoá container KHÔNG mất dữ liệu
+    # KHÔNG có "ports": PostgreSQL chỉ mở trong mạng nội bộ của compose (api và migrate gọi tới bằng tên "postgres").
+    # Từ ngoài máy (Internet) không ai kết nối thẳng vào database được.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U game -d game"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    logging: *default-logging
+
+  redis:
+    image: redis:8
+    volumes:
+      - redisdata:/data   # Redis định kỳ lưu snapshot vào /data: khởi động lại vẫn còn bảng xếp hạng
+    # Cũng không mở cổng ra ngoài, giống postgres.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    logging: *default-logging
+
+  # Chạy MỘT LẦN mỗi lần "docker compose up": áp các migration còn thiếu (tạo / sửa bảng) rồi thoát.
+  # Đã đủ migration thì chỉ kiểm tra rồi thoát ngay, không làm gì.
+  migrate:
+    build:
+      context: ..          # thư mục ServerSampleApi (nơi có Dockerfile)
+      target: migrator     # chỉ build tới giai đoạn "migrator" trong Dockerfile
+    image: serversample-migrator
+    environment:
+      ConnectionStrings__GameDb: Host=postgres;Port=5432;Database=game;Username=game;Password=${POSTGRES_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy     # chờ PostgreSQL trả lời được rồi mới chạy
+    restart: "no"                      # chạy xong là thôi, không khởi động lại
+    logging: *default-logging
+
+  api:
+    build:
+      context: ..
+    image: serversample-api
+    environment:
+      ConnectionStrings__GameDb: Host=postgres;Port=5432;Database=game;Username=game;Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__Redis: redis:6379,abortConnect=false
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env}
+      System__ApiKey: ${SYSTEM_API_KEY:?Set SYSTEM_API_KEY in .env}
+      Swagger__Enabled: ${SWAGGER_ENABLED:-false}   # không có trong .env thì mặc định false
+    ports:
+      # Cổng máy : cổng container. Chỉ API được mở ra ngoài.
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully   # migration phải chạy XONG và THÀNH CÔNG
+      redis:
+        condition: service_healthy
+    restart: unless-stopped   # server bị crash hoặc máy khởi động lại thì Docker tự chạy lại
+    logging: *default-logging
+
+volumes:
+  pgdata:
+  redisdata:

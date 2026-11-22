@@ -18,8 +18,9 @@ ServerSampleApi.UnitTests/
 # Server trong container nhận cấu hình qua biến môi trường.
 **/appsettings.Development.json
 
-# Docker và Git.
+# Docker, Git, và thư mục deploy (có file .env chứa khoá bí mật: tuyệt đối không đưa vào image).
 Dockerfile
 .dockerignore
 docker-compose*.yml
+deploy/
 **/.git
